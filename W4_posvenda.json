@@ -1,0 +1,674 @@
+{
+  "name": "Synapse W4 — Pós-venda e Retenção",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "posvenda-trigger",
+      "name": "Polling Pós-venda a cada 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.ERPNEXT_DOMAIN}}/api/resource/Sales Invoice?filters=[[\"custom_entregue\",\"=\",\"1\"],[\"custom_avaliacao_enviada\",\"!=\",\"1\"]]&fields=[\"name\",\"customer_name\",\"contact_mobile\",\"custom_data_entrega\"]",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "token {{$env.ERPNEXT_API_KEY}}:{{$env.ERPNEXT_API_SECRET}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-delivered",
+      "name": "ERPNext — Busca Pedidos Entregues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "split-delivered",
+      "name": "Split Entregues",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const invoice = $input.first().json;\nconst entrega = new Date(invoice.custom_data_entrega);\nconst agora = new Date();\nconst dias = (agora - entrega) / (1000 * 60 * 60 * 24);\n\nreturn [{\n  json: {\n    ...invoice,\n    dias_desde_entrega: Math.floor(dias),\n    deve_avaliar: dias >= 7 && dias < 7.25 // alinhado ao polling de 6h; custom_avaliacao_enviada já impede duplicidade mesmo se a janela fosse mais larga\n  }\n}];"
+      },
+      "id": "check-age",
+      "name": "Verifica Dias desde Entrega",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.deve_avaliar}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "should-evaluate",
+      "name": "Deve Pedir Avaliação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/conversations",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "{{$env.CHATWOOT_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inbox_id\": {{$env.CHATWOOT_WHATSAPP_INBOX_ID}},\n  \"meta\": { \"sender\": { \"phone_number\": \"{{$json.telefone_normalizado}}\" } },\n  \"message\": {\n    \"content\": \"Olá *{{$json.customer_name}}*! 😊\\n\\nJá faz uma semana desde que seu pedido *#{{$json.name}}* foi entregue. Tudo certo?\\n\\nSua opinião é muito importante para nós:\\n\\n👍 Ótimo\\n👎 Tive um problema\"\n  }\n}"
+      },
+      "id": "whatsapp-avaliacao",
+      "name": "WhatsApp — Pede Avaliação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.ERPNEXT_DOMAIN}}/api/resource/Sales Invoice/{{$json.name}}",
+        "requestMethod": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "token {{$env.ERPNEXT_API_KEY}}:{{$env.ERPNEXT_API_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"custom_avaliacao_enviada\": \"1\", \"custom_data_avaliacao_enviada\": \"{{$now.toISODate()}}\"}"
+      },
+      "id": "mark-sent",
+      "name": "ERPNext — Marca Avaliação Enviada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatwoot-reply",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-reply",
+      "name": "Webhook Chatwoot — Resposta Cliente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "ok",
+        "options": {}
+      },
+      "id": "respond-reply",
+      "name": "Responde OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst mensagem = (body.content || '').toLowerCase().trim();\nconst conversa_id = body.conversation?.id || '';\nconst contact = body.conversation?.meta?.sender || {};\nconst telefone = (contact.phone_number || '').replace(/\\D/g, '');\nconst nome = contact.name || 'Cliente';\n\nconst NEGATIVOS = ['problema', 'errado', 'ruim', 'péssimo', 'horrível',\n  'não recebi', 'quebrado', 'defeito', '👎', 'tive um problema',\n  'atrasou', 'atrasado', 'não chegou', 'danificado', 'errada'];\n\nconst POSITIVOS = ['ótimo', 'ótima', 'excelente', 'perfeito', 'parabéns',\n  'gostei', 'amei', '👍', 'top', 'bom', 'boa', 'maravilhoso',\n  'adorei', 'satisfeito', 'feliz', 'chegou certinho'];\n\nlet sentimento = 'ambiguo'; // fallback padrão\nif (NEGATIVOS.some(p => mensagem.includes(p))) sentimento = 'negativo';\nelse if (POSITIVOS.some(p => mensagem.includes(p))) sentimento = 'positivo';\n\nreturn [{\n  json: { conversa_id, telefone, nome, mensagem: body.content, sentimento }\n}];"
+      },
+      "id": "analyse-reply",
+      "name": "Analisa Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{$json.sentimento}}",
+                    "operation": "equal",
+                    "value2": "negativo"
+                  }
+                ]
+              },
+              "outputKey": "negativo"
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{$json.sentimento}}",
+                    "operation": "equal",
+                    "value2": "positivo"
+                  }
+                ]
+              },
+              "outputKey": "positivo"
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{$json.sentimento}}",
+                    "operation": "equal",
+                    "value2": "ambiguo"
+                  }
+                ]
+              },
+              "outputKey": "ambiguo"
+            }
+          ]
+        }
+      },
+      "id": "route-sentiment",
+      "name": "Rota por Sentimento",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [
+        680,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.ERPNEXT_DOMAIN}}/api/resource/Issue",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "token {{$env.ERPNEXT_API_KEY}}:{{$env.ERPNEXT_API_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"subject\": \"Avaliação negativa — {{$json.nome}}\",\n  \"description\": \"Cliente {{$json.nome}} reportou problema pós-entrega.\\n\\nMensagem: {{$json.mensagem}}\\n\\nTelefone: {{$json.telefone}}\\nConversa Chatwoot: {{$json.conversa_id}}\",\n  \"priority\": \"High\",\n  \"status\": \"Open\",\n  \"custom_canal\": \"whatsapp\",\n  \"custom_chatwoot_conversa_id\": \"{{$json.conversa_id}}\"\n}"
+      },
+      "id": "ticket-negativo",
+      "name": "ERPNext — Ticket Alta Prioridade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        900,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.ERPNEXT_DOMAIN}}/api/resource/Issue",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "token {{$env.ERPNEXT_API_KEY}}:{{$env.ERPNEXT_API_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"subject\": \"Resposta ambígua pós-venda — {{$json.nome}}\",\n  \"description\": \"Cliente {{$json.nome}} respondeu a avaliação com texto não identificado.\\n\\nMensagem: {{$json.mensagem}}\\n\\nTelefone: {{$json.telefone}}\\nConversa Chatwoot: {{$json.conversa_id}}\\n\\nVerificar manualmente.\",\n  \"priority\": \"Medium\",\n  \"status\": \"Open\",\n  \"custom_canal\": \"whatsapp\",\n  \"custom_chatwoot_conversa_id\": \"{{$json.conversa_id}}\"\n}"
+      },
+      "id": "ticket-ambiguo",
+      "name": "ERPNext — Ticket Prioridade Média",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        900,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/conversations/{{$json.conversa_id}}/labels",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "{{$env.CHATWOOT_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"labels\": [\"requer-atencao\", \"pos-venda\"]}"
+      },
+      "id": "tag-negativo",
+      "name": "Chatwoot — Tag Requer Atenção",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1120,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/conversations/{{$json.conversa_id}}/labels",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "{{$env.CHATWOOT_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"labels\": [\"verificar\", \"pos-venda\"]}"
+      },
+      "id": "tag-ambiguo",
+      "name": "Chatwoot — Tag Verificar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1120,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/conversations/{{$json.conversa_id}}/messages",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "{{$env.CHATWOOT_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"content\": \"Lamentamos o inconveniente, *{{$json.nome}}*! 😔\\n\\nUm atendente especializado já foi notificado e entrará em contacto em breve para resolver com prioridade.\", \"message_type\": \"outgoing\", \"private\": false}"
+      },
+      "id": "reply-negativo",
+      "name": "WhatsApp — Responde Problema",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/conversations/{{$json.conversa_id}}/messages",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "{{$env.CHATWOOT_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"content\": \"Obrigado pela resposta, *{{$json.nome}}*! 😊\\n\\nPoderia nos dizer como foi a experiência? Estamos aqui para ajudar no que precisar.\", \"message_type\": \"outgoing\", \"private\": false}"
+      },
+      "id": "reply-ambiguo",
+      "name": "WhatsApp — Pede Esclarecimento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/conversations/{{$json.conversa_id}}/messages",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "{{$env.CHATWOOT_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"content\": \"Que ótimo, *{{$json.nome}}*! 🎉 Ficamos muito felizes!\\n\\nAté a próxima compra! 😊\", \"message_type\": \"outgoing\", \"private\": false}"
+      },
+      "id": "reply-positivo",
+      "name": "WhatsApp — Agradece Avaliação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        900,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const doc = $json;\nlet raw = String(($json.contact_mobile || '').replace(/\\D/g, '') || '').replace(/\\D/g, '');\nlet telefone_normalizado;\nif (raw.startsWith('55') && raw.length >= 12) {\n  telefone_normalizado = '+' + raw;\n} else if (raw.length === 10 || raw.length === 11) {\n  telefone_normalizado = '+55' + raw;\n} else {\n  telefone_normalizado = '+' + raw;\n}\nreturn [{ json: { ...doc, telefone_normalizado } }];\n"
+      },
+      "id": "normaliza-tel-0-whatsapp-pede-avalia-o",
+      "name": "Normaliza Telefone (WhatsApp — Pede Avaliação)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if ($json.body && $json.body.message_type !== 'incoming') {\n  return [];\n}\nreturn [{ json: $json }];\n"
+      },
+      "id": "filtro-incoming",
+      "name": "Filtra Apenas Mensagens de Entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Polling Pós-venda a cada 6h": {
+      "main": [
+        [
+          {
+            "node": "ERPNext — Busca Pedidos Entregues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERPNext — Busca Pedidos Entregues": {
+      "main": [
+        [
+          {
+            "node": "Split Entregues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Entregues": {
+      "main": [
+        [
+          {
+            "node": "Verifica Dias desde Entrega",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifica Dias desde Entrega": {
+      "main": [
+        [
+          {
+            "node": "Deve Pedir Avaliação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deve Pedir Avaliação?": {
+      "main": [
+        [
+          {
+            "node": "Normaliza Telefone (WhatsApp — Pede Avaliação)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "WhatsApp — Pede Avaliação": {
+      "main": [
+        [
+          {
+            "node": "ERPNext — Marca Avaliação Enviada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Chatwoot — Resposta Cliente": {
+      "main": [
+        [
+          {
+            "node": "Responde OK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filtra Apenas Mensagens de Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisa Resposta": {
+      "main": [
+        [
+          {
+            "node": "Rota por Sentimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota por Sentimento": {
+      "main": [
+        [
+          {
+            "node": "ERPNext — Ticket Alta Prioridade",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp — Agradece Avaliação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ERPNext — Ticket Prioridade Média",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERPNext — Ticket Alta Prioridade": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot — Tag Requer Atenção",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERPNext — Ticket Prioridade Média": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot — Tag Verificar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot — Tag Requer Atenção": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp — Responde Problema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot — Tag Verificar": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp — Pede Esclarecimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza Telefone (WhatsApp — Pede Avaliação)": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp — Pede Avaliação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtra Apenas Mensagens de Entrada": {
+      "main": [
+        [
+          {
+            "node": "Analisa Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "name": "Synapse — Consumo — Serviços",
+  "nodes": [
+    {
+      "id": "cc172ac8-2c87-5141-b032-aceab0aea64f",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "consumo/servicos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "4120d4f0-4ec0-5410-b4ee-d654574340ec"
+    },
+    {
+      "id": "d8cde597-02f4-5f2c-aa49-21ca6977444b",
+      "name": "Valida configuração",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"ERPNEXT_DOMAIN\", \"ERPNEXT_API_KEY\", \"ERPNEXT_API_SECRET\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_RITMO: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_RITMO');\nreturn [{ json: { ok: true } }];\n"
+      }
+    },
+    {
+      "id": "2801a853-a516-5e72-a386-6db722236696",
+      "name": "Configuração OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6b5941fb-4085-5444-8844-f75ee4c76c14",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5f2017de-9643-51ed-a3ef-a6488bd2daaf",
+      "name": "Ritmo — Credenciais de envio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Synapse%20Credencial%20Externa",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "=[\"provedor\",\"status\",\"conta_conectada\",\"saldo\",\"cache_atualizado_em\"]"
+            },
+            {
+              "name": "filters",
+              "value": "=[[\"categoria\",\"=\",\"envio\"]]"
+            },
+            {
+              "name": "limit_page_length",
+              "value": "50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "6edbe838-29ad-58d8-8a5a-3a6b26318636",
+      "name": "Monta resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const lista = ($input.first().json.data) || [];\nconst me = lista.find(r => r.provedor === 'melhorenvio' && r.status === 'conectado') || null;\nconst pendencias = [\n  { campo: 'ia', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: 'Não há, nos arquivos do projeto, fonte existente de requisições de IA por dia (Lyra Central não expõe endpoint de uso documentado).' },\n  { campo: 'frete', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: 'Não há fonte existente de fretes emitidos por semana.' },\n  { campo: 'freteVolume', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: 'Não há fonte existente de fretes emitidos no mês.' }\n];\nconst parcial = {};\nif (me && me.saldo) { parcial.freteSaldo = me.saldo; parcial.freteSaldo_fonte = 'Synapse Credencial Externa (melhorenvio).saldo — cache'; parcial.freteSaldo_cache_atualizado_em = me.cache_atualizado_em || null; }\nelse pendencias.push({ campo: 'freteSaldo', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: me ? 'Cache de saldo do Melhor Envio vazio no Ritmo.' : 'Melhor Envio não está conectado no Ritmo.' });\nconst m = 'PENDENTE_FONTE_DE_DADOS: ' + pendencias.map(p => p.campo).join(', ');\nreturn [{ json: { status: 501, body: { sucesso: false, status: 'PENDENTE_FONTE_DE_DADOS', erro: m, message: m, pendencias, parcial } } }];\n"
+      }
+    },
+    {
+      "id": "f103b2e9-ce2a-5a59-8b65-2c4ab6290679",
+      "name": "Formata erro Ritmo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar credenciais no Ritmo\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"ritmo\" } } }];\n"
+      }
+    },
+    {
+      "id": "fd8391ef-6d0e-5ac4-8bdc-d3c3fe61a57d",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "04acf79b-52e7-5ed5-9959-61a81ae239af",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Consumo — Serviços**\nStatus: PENDENTE_FONTE_DE_DADOS\nia / frete / freteVolume: nenhuma fonte existente identificada nos arquivos → o workflow declara a pendência (HTTP 501) em vez de inventar contador.\nfreteSaldo: lido do cache real `saldo` do DocType Synapse Credencial Externa (provedor melhorenvio), devolvido em `parcial`.\nQuando a fonte existir, trocar o nó 'Monta resposta' para devolver {ia, frete, freteSaldo, freteVolume} com HTTP 200.",
+        "height": 300,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida configuração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida configuração": {
+      "main": [
+        [
+          {
+            "node": "Configuração OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuração OK?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Credenciais de envio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Credenciais de envio": {
+      "main": [
+        [
+          {
+            "node": "Monta resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monta resposta": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Ritmo": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

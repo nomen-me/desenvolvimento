@@ -1,0 +1,624 @@
+{
+  "name": "Synapse — Atendimento — Mensagens",
+  "nodes": [
+    {
+      "id": "3d331830-8d36-5f63-b6ee-a8622b30cc8a",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "atendimento/mensagens",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "fb68e8ad-0c01-5597-9c97-7b9a2a3f7463"
+    },
+    {
+      "id": "f16c53f9-a2c3-5884-90f1-7a464022a393",
+      "name": "Valida entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"CHATWOOT_DOMAIN\", \"CHATWOOT_API_TOKEN\", \"CHATWOOT_ACCOUNT_ID\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_CHATWOOT');\nif (!/^\\d+$/.test(String($env.CHATWOOT_ACCOUNT_ID))) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: CHATWOOT_ACCOUNT_ID não é numérico', 'PENDENTE_CONFIGURACAO_CHATWOOT');\n\nconst b = $input.first().json.body || {};\nconst id = String(b.conversa_id === undefined ? '' : b.conversa_id).trim();\nif (!/^[1-9]\\d{0,17}$/.test(id)) return fail(400, 'conversa_id ausente ou inválido (esperado inteiro positivo)');\nreturn [{ json: { ok: true, conversa_id: id } }];\n"
+      }
+    },
+    {
+      "id": "a74861cc-b45c-527f-8521-dd2f4b73af18",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c40b1627-25af-5bf9-86c6-d5e41d4f277e",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "746766c6-c39a-5523-bb3b-9b13b011bdda",
+      "name": "Harpa — Conversa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.conversa_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "48f51e87-06ed-582a-8619-964659fab316",
+      "name": "Harpa — Mensagens",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $('Valida entrada').first().json.conversa_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "before",
+                    "value": "={{ $response.body.payload[0].id }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.payload || $response.body.payload.length < 20 }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10
+            }
+          }
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "aae74c48-d26f-51ae-9208-b9071e58cc85",
+      "name": "Prepara contato",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const conv = $('Harpa — Conversa').first().json;\nconst s = (conv.meta && conv.meta.sender) || {};\nconst tel = String(s.phone_number || '').replace(/\\D/g, '');\nreturn [{ json: { tem_tel: tel.length >= 8, tel, ult4: tel.slice(-4) } }];\n"
+      }
+    },
+    {
+      "id": "84e9c023-1a38-5d93-8652-b43b65c0150a",
+      "name": "Tem telefone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b92f11e3-8250-576f-8d99-efa5f96f3e49",
+              "leftValue": "={{ $json.tem_tel }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "322b04ef-4942-5863-ae9e-afa30ecff44d",
+      "name": "Ritmo — Clientes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Customer",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "=[\"name\",\"customer_name\",\"tax_id\",\"mobile_no\"]"
+            },
+            {
+              "name": "filters",
+              "value": "={{ JSON.stringify([[\"mobile_no\",\"like\",\"%\" + $json.ult4]]) }}"
+            },
+            {
+              "name": "limit_page_length",
+              "value": "50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "7cef1105-6165-5716-a519-b37adab72111",
+      "name": "Resolve cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const tel = $('Prepara contato').first().json.tel;\nconst cand = (($input.first().json.data) || []).filter(c => {\n  const d = String(c.mobile_no || '').replace(/\\D/g, '');\n  return d.length >= 8 && (tel.endsWith(d.slice(-9)) || d.endsWith(tel.slice(-9)));\n});\nconst nomes = [...new Set(cand.map(c => c.name))];\nif (nomes.length !== 1) return [{ json: { unico: false, ambiguo: nomes.length > 1 } }];\nconst c = cand[0]; const doc = String(c.tax_id || '').replace(/\\D/g, '');\nreturn [{ json: { unico: true, name: c.name, cpf: doc.length === 11 ? doc : null } }];\n"
+      }
+    },
+    {
+      "id": "efcdf508-037d-537e-8243-59ab42f776cb",
+      "name": "Cliente único?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ecceb6e7-b23f-5453-83f7-c73bd2e921a2",
+              "leftValue": "={{ $json.unico }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8eea6566-7c2a-5eb7-adc2-53c4edb5ffab",
+      "name": "Ritmo — Pedidos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2600,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Sales Order",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "=[\"name\"]"
+            },
+            {
+              "name": "filters",
+              "value": "={{ JSON.stringify([[\"customer\",\"=\",$json.name]]) }}"
+            },
+            {
+              "name": "order_by",
+              "value": "transaction_date desc, creation desc"
+            },
+            {
+              "name": "limit_page_length",
+              "value": "5"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "814072a5-b3a6-51f5-8f31-9ece07a5e7df",
+      "name": "Monta resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const conv = $('Harpa — Conversa').first().json;\nconst s = (conv.meta && conv.meta.sender) || {};\nconst vistos = new Set(); const bruto = [];\nfor (const it of $('Harpa — Mensagens').all()) for (const m of (it.json.payload || [])) {\n  if (vistos.has(m.id)) continue; vistos.add(m.id); bruto.push(m);\n}\nbruto.sort((a, b) => (a.created_at || 0) - (b.created_at || 0) || a.id - b.id);\nconst tipo = (m) => (m.message_type === 0 || m.message_type === 'incoming') ? 'in'\n  : (m.message_type === 2 || m.message_type === 'activity') ? 'act' : 'out';\nconst mensagens = bruto.filter(m => !m.private && tipo(m) !== 'act').map(m => {\n  const anexos = (m.attachments || []).map(a => a.file_name || String(a.data_url || '').split('?')[0].split('/').pop()).filter(Boolean);\n  let texto = m.content || '';\n  if (!texto && anexos.length) texto = 'Anexo: ' + anexos.join(', ');\n  const autor = tipo(m) === 'in' ? 'cliente' : ((m.sender && m.sender.type === 'agent_bot') ? 'sistema' : 'agente');\n  return { autor, hora: new Date((m.created_at || 0) * 1000).toISOString(), texto };\n});\nlet cpf = null, pedidos = [];\ntry { cpf = $('Resolve cliente').first().json.cpf || null; } catch (e) {}\ntry { pedidos = ($('Ritmo — Pedidos').first().json.data || []).map(p => ({ id: p.name })); } catch (e) {}\nconst tel = String(s.phone_number || '').replace(/\\D/g, '');\nreturn [{ json: { status: 200, body: {\n  mensagens,\n  cliente: { nome: s.name || null, cpf, contato: tel || s.email || s.identifier || null },\n  ultimos_pedidos: pedidos\n} } }];\n"
+      }
+    },
+    {
+      "id": "97236147-d39a-5c42-b5dc-4cd9cee25352",
+      "name": "Formata erro Harpa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar a conversa no Harpa\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"harpa\" } } }];\n"
+      }
+    },
+    {
+      "id": "425556ee-096c-5ab9-81ce-7409a99e4d69",
+      "name": "Formata erro Ritmo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar cliente/pedidos no Ritmo\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"ritmo\" } } }];\n"
+      }
+    },
+    {
+      "id": "46847585-e17b-5874-ba19-e1f4a6569972",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3640,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "1736b215-f3ba-5ca1-a44e-c5916d92f3c4",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3900,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Atendimento — Mensagens**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nEnv: CHATWOOT_* e ERPNEXT_DOMAIN/API_KEY/API_SECRET.\nCPF/pedidos: Customer.tax_id e Sales Order do Ritmo, vinculados pelo telefone da conversa (premissa a confirmar). Telefone sem cliente único → cpf null e pedidos [].\nFalha do Ritmo → HTTP 502 (não é escondida).",
+        "height": 260,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida entrada": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "Harpa — Conversa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Harpa — Conversa": {
+      "main": [
+        [
+          {
+            "node": "Harpa — Mensagens",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Harpa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Harpa — Mensagens": {
+      "main": [
+        [
+          {
+            "node": "Prepara contato",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Harpa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepara contato": {
+      "main": [
+        [
+          {
+            "node": "Tem telefone?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem telefone?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Clientes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Monta resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Clientes": {
+      "main": [
+        [
+          {
+            "node": "Resolve cliente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve cliente": {
+      "main": [
+        [
+          {
+            "node": "Cliente único?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cliente único?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Pedidos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Monta resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Pedidos": {
+      "main": [
+        [
+          {
+            "node": "Monta resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monta resposta": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Harpa": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Ritmo": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

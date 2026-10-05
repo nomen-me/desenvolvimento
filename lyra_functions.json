@@ -1,0 +1,187 @@
+{
+  "function_declarations": [
+    {
+      "name": "gerenciar_cadastro",
+      "description": "Cria, edita ou exclui cadastros de clientes, produtos ou fornecedores no Synapse ERP. Use sempre que a conversa indicar necessidade de criar/atualizar um registro (novo cliente, alteração de dados cadastrais, cadastro de produto, etc).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "acao": {
+            "type": "string",
+            "enum": [
+              "criar",
+              "editar",
+              "excluir"
+            ],
+            "description": "Operação a ser executada sobre o cadastro."
+          },
+          "tipo_entidade": {
+            "type": "string",
+            "enum": [
+              "cliente",
+              "produto",
+              "fornecedor"
+            ],
+            "description": "Qual entidade está sendo manipulada."
+          },
+          "id_entidade": {
+            "type": "string",
+            "description": "Identificador único da entidade. Obrigatório para 'editar' e 'excluir'. Omitir em 'criar'."
+          },
+          "dados_cliente": {
+            "type": "object",
+            "description": "Payload com os campos a criar/atualizar (nome, documento, contato, endereço, categoria, preço, estoque, etc — conforme tipo_entidade)."
+          }
+        },
+        "required": [
+          "acao",
+          "tipo_entidade"
+        ]
+      }
+    },
+    {
+      "name": "mecanismo_captura_lead",
+      "description": "Registra e qualifica um novo lead a partir do contexto da conversa (Synapse Chat). Deve ser chamada assim que houver sinal de interesse comercial explícito ou dados de contato novos.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "canal_origem": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "instagram",
+              "loja_synapse",
+              "outro"
+            ],
+            "description": "Canal de onde o lead se originou."
+          },
+          "dados_interacao": {
+            "type": "object",
+            "description": "Dados extraídos da conversa: nome, contato, interesse declarado, estágio de qualificação (frio/morno/quente), resumo da intenção."
+          },
+          "score_qualificacao": {
+            "type": "string",
+            "enum": [
+              "frio",
+              "morno",
+              "quente"
+            ],
+            "description": "Classificação do lead com base no comportamento observado na conversa."
+          }
+        },
+        "required": [
+          "canal_origem",
+          "dados_interacao"
+        ]
+      }
+    },
+    {
+      "name": "processar_pedido",
+      "description": "Executa ações sobre um pedido já existente ou em criação no fluxo comercial: confirmação de venda, cancelamento ou estorno. Não deve ser usada para consulta simples de status — apenas para mudança de estado do pedido.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "acao": {
+            "type": "string",
+            "enum": [
+              "criar_venda",
+              "confirmar",
+              "cancelar",
+              "estornar"
+            ],
+            "description": "Ação a ser aplicada ao pedido."
+          },
+          "id_pedido": {
+            "type": "string",
+            "description": "Identificador do pedido. Obrigatório em todas as ações exceto 'criar_venda'."
+          },
+          "motivo": {
+            "type": "string",
+            "description": "Justificativa da ação, obrigatória para 'cancelar' e 'estornar' (para auditoria)."
+          },
+          "itens": {
+            "type": "array",
+            "description": "Lista de itens do pedido, usada apenas em 'criar_venda'.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "produto_id": {
+                  "type": "string"
+                },
+                "quantidade": {
+                  "type": "integer"
+                },
+                "preco_unitario": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "acao"
+        ]
+      }
+    },
+    {
+      "name": "faturamento_expedicao",
+      "description": "Comanda a emissão de nota fiscal e a geração de etiqueta de envio para um pedido já confirmado. Só deve ser chamada após o pedido estar com status 'confirmado' — nunca antes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id_pedido": {
+            "type": "string",
+            "description": "Identificador do pedido a ser faturado e expedido."
+          },
+          "tipo_documento": {
+            "type": "string",
+            "enum": [
+              "nfe",
+              "nfce"
+            ],
+            "description": "Tipo de documento fiscal a emitir."
+          },
+          "transportadora": {
+            "type": "string",
+            "description": "Transportadora ou método de envio escolhido, se aplicável."
+          }
+        },
+        "required": [
+          "id_pedido"
+        ]
+      }
+    },
+    {
+      "name": "consultar_pedido",
+      "description": "Consulta o status atual de um pedido/fatura existente: pagamento, rastreio e entrega.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "identificador": {
+            "type": "string",
+            "description": "Número do pedido/fatura ou CPF/CNPJ do cliente"
+          }
+        },
+        "required": [
+          "identificador"
+        ]
+      }
+    },
+    {
+      "name": "verificar_estoque",
+      "description": "Verifica disponibilidade e quantidade em estoque de um produto pelo nome ou código.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "produto": {
+            "type": "string",
+            "description": "Nome ou código do produto"
+          }
+        },
+        "required": [
+          "produto"
+        ]
+      }
+    }
+  ]
+}

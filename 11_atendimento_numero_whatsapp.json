@@ -1,0 +1,245 @@
+{
+  "name": "Synapse — Atendimento — Número WhatsApp",
+  "nodes": [
+    {
+      "id": "c39140be-006b-5112-ae88-b3dfdd9d27f0",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "atendimento/numero-whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "6c5a9b71-76ec-51fa-bf8f-7410a174c57c"
+    },
+    {
+      "id": "8b1c4fff-d52a-5053-8e97-ee53757e7a7e",
+      "name": "Valida configuração",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"CHATWOOT_DOMAIN\", \"CHATWOOT_API_TOKEN\", \"CHATWOOT_ACCOUNT_ID\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_CHATWOOT');\nif (!/^\\d+$/.test(String($env.CHATWOOT_ACCOUNT_ID))) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: CHATWOOT_ACCOUNT_ID não é numérico', 'PENDENTE_CONFIGURACAO_CHATWOOT');\nreturn [{ json: { ok: true } }];\n"
+      }
+    },
+    {
+      "id": "64f0ed5d-434a-5250-b0a0-761ff34a48df",
+      "name": "Configuração OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "573c36a1-7c82-5535-8037-a81e6b0fa581",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e1194395-950d-5886-9f23-d0682b032d38",
+      "name": "Harpa — Listar inboxes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/inboxes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "9046638f-f55b-5884-9f79-09ba2c6e986b",
+      "name": "Resolve número",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst lista = ($input.first().json.payload) || [];\nconst wa = lista.filter(i => i.channel_type === 'Channel::Whatsapp' || i.medium === 'whatsapp');\nconst pref = String($env.CHATWOOT_WHATSAPP_INBOX_ID || '');\nlet ib = wa.find(i => String(i.id) === pref) || null;\nif (!ib && wa.length === 1) ib = wa[0];\nif (!ib && wa.length === 0) return fail(404, 'PENDENTE_CONFIGURACAO: nenhum canal de WhatsApp conectado no Harpa', 'PENDENTE_CONFIGURACAO_WHATSAPP');\nif (!ib) return fail(409, 'Mais de um canal de WhatsApp no Harpa; defina CHATWOOT_WHATSAPP_INBOX_ID com o id correto', 'PENDENTE_CONFIGURACAO_WHATSAPP');\nconst numero = String(ib.phone_number || '').replace(/\\D/g, '');\nif (!numero) return fail(404, 'O canal de WhatsApp do Harpa não informa número', 'PENDENTE_CONFIGURACAO_WHATSAPP');\nreturn [{ json: { status: 200, body: { numero } } }];\n"
+      }
+    },
+    {
+      "id": "3dd798c3-3eee-59d8-84bf-5254b08e0afb",
+      "name": "Formata erro Harpa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar canais no Harpa\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"harpa\" } } }];\n"
+      }
+    },
+    {
+      "id": "9f4d689a-51a3-5614-adf4-f0d5be6ec410",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "a99e26e3-e26b-5620-9fd8-536386b033b4",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Atendimento — Número WhatsApp**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nLê o inbox WhatsApp real do Harpa. ATENÇÃO: o instalador grava CHATWOOT_WHATSAPP_INBOX_ID=1, mas o inbox 1 tende a ser o webchat 'Site Synapse'. O workflow só usa o id se ele for de fato um inbox WhatsApp; senão usa o único inbox WhatsApp existente.",
+        "height": 260,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida configuração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida configuração": {
+      "main": [
+        [
+          {
+            "node": "Configuração OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuração OK?": {
+      "main": [
+        [
+          {
+            "node": "Harpa — Listar inboxes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Harpa — Listar inboxes": {
+      "main": [
+        [
+          {
+            "node": "Resolve número",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Harpa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve número": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Harpa": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "name": "Synapse — Atendimento — Enviar Mensagem",
+  "nodes": [
+    {
+      "id": "d345ba2e-068a-5f1f-9406-1cdf03170a7d",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "atendimento/enviar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "670af96e-0eae-562a-a6b1-b735e66543d9"
+    },
+    {
+      "id": "4d45d352-314c-5d90-b671-83f994319a57",
+      "name": "Valida entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"CHATWOOT_DOMAIN\", \"CHATWOOT_API_TOKEN\", \"CHATWOOT_ACCOUNT_ID\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_CHATWOOT');\nif (!/^\\d+$/.test(String($env.CHATWOOT_ACCOUNT_ID))) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: CHATWOOT_ACCOUNT_ID não é numérico', 'PENDENTE_CONFIGURACAO_CHATWOOT');\n\nconst b = $input.first().json.body || {};\nconst id = String(b.conversa_id === undefined ? '' : b.conversa_id).trim();\nif (!/^[1-9]\\d{0,17}$/.test(id)) return fail(400, 'conversa_id ausente ou inválido (esperado inteiro positivo)');\nif (typeof b.mensagem !== 'string' || !b.mensagem.trim()) return fail(400, 'mensagem ausente ou vazia');\nreturn [{ json: { ok: true, conversa_id: id, mensagem: b.mensagem } }];\n"
+      }
+    },
+    {
+      "id": "5ae6db08-f941-5303-89e1-6901e646e1f7",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "21fc18a0-338a-56b6-a4dc-8a5b5aa3f1bc",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "27d45c43-2816-53ab-b984-951ac0fac383",
+      "name": "Harpa — Enviar mensagem",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.conversa_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.mensagem, message_type: \"outgoing\", private: false }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "868083a5-e5da-57cf-9fa8-375004e5cb66",
+      "name": "Normaliza resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const j = $input.first().json;\nif (j.id === undefined || j.id === null) return [{ json: { status: 502, body: { sucesso: false, erro: 'Resposta do Harpa sem id de mensagem', message: 'Resposta do Harpa sem id de mensagem' } } }];\nreturn [{ json: { status: 200, body: { sucesso: true, id: j.id } } }];\n"
+      }
+    },
+    {
+      "id": "b6f39085-cd13-599b-ad3d-bac67320e5d6",
+      "name": "Formata erro Harpa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao enviar mensagem ao Harpa\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"harpa\" } } }];\n"
+      }
+    },
+    {
+      "id": "72fa6c9e-be8b-517a-aa74-e41dd942b00d",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "a237cd7a-a651-58d2-97e2-92029be15e04",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Atendimento — Enviar Mensagem**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nSem retry no POST de propósito: reenviar após resposta ambígua poderia duplicar a mensagem para o cliente.\nToken do Chatwoot só no header server-side; nunca na resposta.",
+        "height": 260,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida entrada": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "Harpa — Enviar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Harpa — Enviar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Normaliza resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Harpa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza resposta": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Harpa": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

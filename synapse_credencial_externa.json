@@ -1,0 +1,122 @@
+{
+  "doctype": "DocType",
+  "name": "Synapse Credencial Externa",
+  "module": "Synapse",
+  "custom": 1,
+  "istable": 0,
+  "issingle": 0,
+  "track_changes": 1,
+  "autoname": "field:credencial_id",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "fields": [
+    {
+      "fieldname": "credencial_id",
+      "fieldtype": "Data",
+      "label": "ID",
+      "unique": 1,
+      "reqd": 1,
+      "description": "Ex.: melhorenvio, infinitepay, gmc, gads, msads, meta, whatsapp, telegram, sms — um registro por provedor conectado."
+    },
+    {
+      "fieldname": "provedor",
+      "fieldtype": "Data",
+      "label": "Provedor",
+      "reqd": 1,
+      "description": "Chave usada pelo painel (plataforma). Ex.: 'gmc', 'melhorenvio', 'whatsapp'."
+    },
+    {
+      "fieldname": "categoria",
+      "fieldtype": "Select",
+      "label": "Categoria",
+      "reqd": 1,
+      "options": "marketing\nenvio\npagamento\natendimento"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "default": "desconectado",
+      "options": "desconectado\nconectado\nexpirado\nerro"
+    },
+    {
+      "fieldname": "conta_conectada",
+      "fieldtype": "Data",
+      "label": "Conta Conectada",
+      "description": "Nome/handle exibido ao lojista (nunca um ID técnico). Ex.: 'joao@gmail.com', '@minhaloja'."
+    },
+    {
+      "fieldname": "sec_credenciais",
+      "fieldtype": "Section Break",
+      "label": "Credenciais (nunca lidas pelo painel)"
+    },
+    {
+      "fieldname": "access_token",
+      "fieldtype": "Password",
+      "label": "Access Token"
+    },
+    {
+      "fieldname": "refresh_token",
+      "fieldtype": "Password",
+      "label": "Refresh Token"
+    },
+    {
+      "fieldname": "expira_em",
+      "fieldtype": "Datetime",
+      "label": "Token Expira Em",
+      "description": "Usado pelo workflow de renovação automática pra saber quando reautenticar."
+    },
+    {
+      "fieldname": "metadados",
+      "fieldtype": "Long Text",
+      "label": "Metadados (JSON)",
+      "description": "Qualquer campo específico do provedor que não mereça virar coluna própria."
+    },
+    {
+      "fieldname": "sec_cache",
+      "fieldtype": "Section Break",
+      "label": "Cache de leitura (o painel lê só isto)"
+    },
+    {
+      "fieldname": "saldo",
+      "fieldtype": "Data",
+      "label": "Saldo / Crédito"
+    },
+    {
+      "fieldname": "consumo_diario",
+      "fieldtype": "Data",
+      "label": "Consumo Diário"
+    },
+    {
+      "fieldname": "roas",
+      "fieldtype": "Data",
+      "label": "ROAS Geral"
+    },
+    {
+      "fieldname": "cache_atualizado_em",
+      "fieldtype": "Datetime",
+      "label": "Cache Atualizado Em"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    },
+    {
+      "role": "Synapse Automação",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "if_owner": 0,
+      "print": 0,
+      "email": 0,
+      "export": 0,
+      "report": 0,
+      "description": "Papel de serviço usado só pela API key do Harmonia — não deve existir papel que dê acesso de leitura direta a access_token/refresh_token pra usuário humano nenhum, nem admin da loja."
+    }
+  ]
+}

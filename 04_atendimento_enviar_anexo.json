@@ -1,0 +1,258 @@
+{
+  "name": "Synapse — Atendimento — Enviar Anexo",
+  "nodes": [
+    {
+      "id": "0f4c3fe3-fd16-5d5c-9709-f90dfef049fa",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "atendimento/enviar-anexo",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "95d5bd4b-c8ea-52c7-9ce8-2557b3a3feef"
+    },
+    {
+      "id": "7a4ec804-b94c-53aa-9c23-7589f7cca692",
+      "name": "Valida entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"CHATWOOT_DOMAIN\", \"CHATWOOT_API_TOKEN\", \"CHATWOOT_ACCOUNT_ID\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_CHATWOOT');\nif (!/^\\d+$/.test(String($env.CHATWOOT_ACCOUNT_ID))) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: CHATWOOT_ACCOUNT_ID não é numérico', 'PENDENTE_CONFIGURACAO_CHATWOOT');\n\nconst item = $input.first();\nconst b = item.json.body || {};\nconst id = String(b.conversa_id === undefined ? '' : b.conversa_id).trim();\nif (!/^[1-9]\\d{0,17}$/.test(id)) return fail(400, 'conversa_id ausente ou inválido (esperado inteiro positivo)');\nconst chaves = Object.keys(item.binary || {});\nif (chaves.length === 0) return fail(400, 'Nenhum arquivo recebido (esperado multipart/form-data com attachments[])');\nif (chaves.length > 1) return fail(400, 'Envie um arquivo por requisição');\nreturn [{ json: { ok: true, conversa_id: id, arquivo: item.binary[chaves[0]].fileName || null }, binary: item.binary }];\n"
+      }
+    },
+    {
+      "id": "7f81619b-d54f-528d-abcc-a4f63e40d097",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "57a20b0d-6255-5fd8-a978-79b921cfccac",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "62b650bf-b393-565c-a66c-3a7a1c1d6d96",
+      "name": "Harpa — Enviar anexo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.conversa_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "attachments[]",
+              "inputDataFieldName": "={{ Object.keys($binary)[0] }}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "message_type",
+              "value": "outgoing"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a79d70ec-9ccd-5ee4-bb66-b8ac83cb2088",
+      "name": "Normaliza resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const j = $input.first().json;\nif (j.id === undefined || j.id === null) return [{ json: { status: 502, body: { sucesso: false, erro: 'Resposta do Harpa sem id de mensagem', message: 'Resposta do Harpa sem id de mensagem' } } }];\nreturn [{ json: { status: 200, body: { sucesso: true, id: j.id } } }];\n"
+      }
+    },
+    {
+      "id": "6860f699-a13a-55f5-82ba-279118edb818",
+      "name": "Formata erro Harpa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao enviar anexo ao Harpa\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"harpa\" } } }];\n"
+      }
+    },
+    {
+      "id": "ae48439b-ce17-5c62-9ba2-ec658185b5b4",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "9d1e9ad8-e357-59c7-b3a4-88d2b986ac5a",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Atendimento — Enviar Anexo**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nmultipart/form-data: conversa_id + 1 arquivo. O arquivo não é gravado: segue em memória do n8n direto ao Harpa.\nLimite: N8N_PAYLOAD_SIZE_MAX (padrão 16 MB) e limite do Chatwoot.",
+        "height": 260,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida entrada": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "Harpa — Enviar anexo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Harpa — Enviar anexo": {
+      "main": [
+        [
+          {
+            "node": "Normaliza resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Harpa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza resposta": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Harpa": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

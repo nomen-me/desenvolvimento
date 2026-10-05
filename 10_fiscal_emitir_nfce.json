@@ -1,0 +1,283 @@
+{
+  "name": "Synapse — Fiscal — Emitir NFC-e",
+  "nodes": [
+    {
+      "id": "59c903e3-2d40-5fbf-8f8e-6501b80d9302",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fiscal/emitir-nfce",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "d2314503-86d0-5b41-ba58-5a1c404d224a"
+    },
+    {
+      "id": "56f98f14-211e-5285-a0ea-711fc48e27e8",
+      "name": "Valida entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"ERPNEXT_DOMAIN\", \"ERPNEXT_API_KEY\", \"ERPNEXT_API_SECRET\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_RITMO: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_RITMO');\n\nconst b = $input.first().json.body || {};\nconst op = String(b.venda_op_id || '').trim();\nif (!/^[A-Za-z0-9._:-]{1,140}$/.test(op)) return fail(400, 'venda_op_id ausente ou inválido');\nreturn [{ json: { ok: true, venda_op_id: op } }];\n"
+      }
+    },
+    {
+      "id": "af9ad625-1194-50f2-aefd-032ece321639",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1cad7fef-e779-5859-b8ac-cac771a81884",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f87c8ab6-0993-5c9c-bc81-c0a6d54a94d7",
+      "name": "Ritmo — Venda (POS Invoice)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/POS%20Invoice",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "=[\"name\",\"docstatus\",\"status\"]"
+            },
+            {
+              "name": "filters",
+              "value": "={{ JSON.stringify([[\"synapse_op_id\",\"=\",$json.venda_op_id]]) }}"
+            },
+            {
+              "name": "limit_page_length",
+              "value": "2"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "16fa5a5b-7b5d-5cbf-a316-d30a2cf5cd43",
+      "name": "Declara dependência fiscal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const v = (($input.first().json.data) || [])[0];\nif (!v) { const m = 'Venda ainda não sincronizada no Ritmo (POS Invoice com este synapse_op_id)'; return [{ json: { status: 404, body: { status: 'pendente', sucesso: false, erro: m, message: m } } }]; }\nconst m = 'PENDENTE_DEPENDENCIA_MECANISMO_FISCAL: nenhum endpoint do mecanismo fiscal (brazil_nf) está definido nos arquivos do projeto; nada foi emitido';\nreturn [{ json: { status: 501, body: { status: 'pendente', sucesso: false, erro: m, message: m, codigo: 'PENDENTE_DEPENDENCIA_MECANISMO_FISCAL', pos_invoice: v.name } } }];\n"
+      }
+    },
+    {
+      "id": "24fde9b0-3028-55d2-85da-6cf031639167",
+      "name": "Formata erro Ritmo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar a venda no Ritmo\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"ritmo\" } } }];\n"
+      }
+    },
+    {
+      "id": "a80d6b7f-3bbf-5023-96f1-87ca02f39b16",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "68046626-4f5c-5eb8-8c72-c0697cfdf986",
+      "name": "Mecanismo fiscal — Emitir NFC-e (NÃO CONECTADO)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        600
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "PENDENTE_ENDPOINT_MECANISMO_FISCAL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ pos_invoice: $json.pos_invoice }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "1931409a-c50a-56e0-bf06-70644ac886d2",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Fiscal — Emitir NFC-e**\nStatus: PENDENTE_DEPENDENCIA_MECANISMO_FISCAL\nOrquestra apenas: confirma a venda no Ritmo e responde 501 {status:'pendente'} — o Painel mantém a venda como fiscal pendente, nada é autorizado de mentirinha.\nNenhum certificado, XML ou assinatura aqui. O nó desabilitado 'Mecanismo fiscal — Emitir NFC-e (NÃO CONECTADO)' marca o ponto de encaixe; o endpoint do brazil_nf não consta nos arquivos.\nContrato de retorno esperado pelo Painel: {status: pendente|contingencia|enviada|autorizada, chave_acesso?, qrcode_consulta_url?}",
+        "height": 320,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida entrada": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Venda (POS Invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Venda (POS Invoice)": {
+      "main": [
+        [
+          {
+            "node": "Declara dependência fiscal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Declara dependência fiscal": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Ritmo": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,398 @@
+{
+  "name": "Synapse — Pagamentos PDV — Webhook InfinitePay",
+  "nodes": [
+    {
+      "id": "0dd1b305-80e9-5b83-b8b6-be2813e37189",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pagamentos/pdv/infinitepay-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "97eb3b61-5eef-5ab8-be43-4940cd10325c"
+    },
+    {
+      "id": "9637ab8a-6888-5588-8232-f17fe7883e23",
+      "name": "Valida webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst falta = ['ERPNEXT_DOMAIN', 'ERPNEXT_API_KEY', 'ERPNEXT_API_SECRET'].filter(k => !$env[k]);\nif (falta.length) return wfail(500, 'PENDENTE_CONFIGURACAO_RITMO: variáveis ausentes: ' + falta.join(', '));\nconst b = $input.first().json.body || {};\nconst order_nsu = String(b.order_nsu || '').trim();\nif (!/^[A-Za-z0-9._-]{1,100}$/.test(order_nsu)) return wfail(400, 'Pedido não encontrado');\nconst transaction_nsu = String(b.transaction_nsu || '').trim();\nconst slug = String(b.invoice_slug || b.slug || '').trim();\nif (!transaction_nsu || !slug) return wfail(400, 'Webhook sem transaction_nsu/invoice_slug');\nconst paid = b.paid_amount ?? b.amount ?? null;\nreturn [{ json: { ok: true, order_nsu, transaction_nsu, slug, valor_webhook: paid === null ? null : Number(paid) } }];\n"
+      }
+    },
+    {
+      "id": "bec1c36c-c10a-538f-bb61-23c4566e32e8",
+      "name": "Webhook válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "87049905-c267-505a-8901-fe00128a590b",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "414d2dba-f958-5e49-88b5-43f916e11a9e",
+      "name": "Ritmo — Credencial InfinitePay",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Synapse%20Credencial%20Externa/infinitepay",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "91919249-27c4-5aec-8ecc-460560bb2e78",
+      "name": "Resolve handle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst c = $input.first().json.data || {};\nconst bad = (m) => wfail(400, m);\nif (c.status !== 'conectado') return bad('PENDENTE_CONFIGURACAO_INFINITEPAY: conta InfinitePay não está conectada (status: ' + (c.status || 'desconhecido') + ')');\nlet meta = {}; try { meta = JSON.parse(c.metadados || '{}'); } catch (e) {}\nconst handle = String(meta.handle || meta.infinite_tag || c.conta_conectada || '').trim().replace(/^[$@]/, '');\nif (!/^[A-Za-z0-9._-]{2,64}$/.test(handle)) return bad('PENDENTE_CONFIGURACAO_INFINITEPAY: InfiniteTag (handle) não identificada na credencial (metadados.handle ou conta_conectada)');\n\nconst e = $('Valida webhook').first().json;\nreturn [{ json: { ok: true, payload: { handle, order_nsu: e.order_nsu, transaction_nsu: e.transaction_nsu, slug: e.slug } } }];\n"
+      }
+    },
+    {
+      "id": "01304ca8-c42b-533c-97a5-384dad290c46",
+      "name": "Handle OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7d12d641-15cf-539d-b7cf-85cc350db6d8",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cc9d9fc7-7a5b-5adf-922f-baebeb945b66",
+      "name": "InfinitePay — Payment check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.checkout.infinitepay.io/payment_check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "023f81a2-4869-5631-8a30-c40b867bde09",
+      "name": "Reconcilia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst j = $input.first().json;\nconst e = $('Valida webhook').first().json;\nif (!(j.success === true && j.paid === true)) return wfail(400, 'Pagamento não confirmado pela InfinitePay');\nconst pago = j.paid_amount === undefined || j.paid_amount === null ? null : Number(j.paid_amount);\nif (e.valor_webhook !== null && pago !== null && Number.isFinite(e.valor_webhook) && Math.round(e.valor_webhook) !== Math.round(pago)) return wfail(400, 'Valor do webhook diverge do valor confirmado pela InfinitePay');\n// Confirmado pela própria InfinitePay. Este workflow não grava nada: reentregas repetem apenas a verificação (idempotente).\nreturn [{ json: { status: 200, body: { success: true, message: null } } }];\n"
+      }
+    },
+    {
+      "id": "a3e7ac3e-978e-5c54-a46e-1cba8b47c776",
+      "name": "Formata erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {}; const e = it.error || it;\nconst up = Number(e.httpCode || e.statusCode || e.status || 0);\nreturn [{ json: { status: 400, body: { success: false, message: 'Falha ao confirmar o pagamento na InfinitePay' + (up ? ' (HTTP ' + up + ')' : '') } } }];\n"
+      }
+    },
+    {
+      "id": "c646a4fa-a0c8-5db5-9b95-b85b8606b421",
+      "name": "Formata erro Ritmo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {}; const e = it.error || it;\nconst up = Number(e.httpCode || e.statusCode || e.status || 0);\nreturn [{ json: { status: 400, body: { success: false, message: up === 404 ? 'PENDENTE_CONFIGURACAO_INFINITEPAY: credencial não encontrada' : 'Falha ao ler a credencial InfinitePay no Ritmo' } } }];\n"
+      }
+    },
+    {
+      "id": "81644889-3491-57a0-83c0-0d22b928f22b",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2600,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "c5d71283-6ccc-5bfc-ba6a-372c74331f49",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2860,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Pagamentos PDV — Webhook InfinitePay**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nContrato do Panel: sucesso → 200 {success:true,message:null}; erro → 400 {success:false,message} (a InfinitePay reenvia).\nNão confia no corpo do webhook: reconfere com payment_check (handle + order_nsu + transaction_nsu + invoice_slug) e compara o valor.\nNão grava nada: a venda ainda não existe no Ritmo neste momento (a POS Invoice nasce da fila do PDV depois). Reentrega 1x/2x/3x = mesma verificação, sem efeito colateral.\nLIMITE: se o navegador do PDV fechar após o pagamento, nenhum registro no Ritmo guarda o pagamento — ver decisão pendente no LEIA-ME.",
+        "height": 320,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida webhook": {
+      "main": [
+        [
+          {
+            "node": "Webhook válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook válido?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Credencial InfinitePay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Credencial InfinitePay": {
+      "main": [
+        [
+          {
+            "node": "Resolve handle",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve handle": {
+      "main": [
+        [
+          {
+            "node": "Handle OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle OK?": {
+      "main": [
+        [
+          {
+            "node": "InfinitePay — Payment check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "InfinitePay — Payment check": {
+      "main": [
+        [
+          {
+            "node": "Reconcilia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reconcilia": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Ritmo": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

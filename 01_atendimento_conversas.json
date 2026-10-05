@@ -1,0 +1,276 @@
+{
+  "name": "Synapse — Atendimento — Listar Conversas",
+  "nodes": [
+    {
+      "id": "6b35c7e4-ccd4-562b-8f15-b57ded561295",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "atendimento/conversas",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "c6de5a4b-7c15-5560-9e39-9986eb9b1abf"
+    },
+    {
+      "id": "beb1870c-c5f0-53d1-aeb1-78131e3107e7",
+      "name": "Valida configuração",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\nconst falta = [\"CHATWOOT_DOMAIN\", \"CHATWOOT_API_TOKEN\", \"CHATWOOT_ACCOUNT_ID\"].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: variáveis ausentes no ambiente do Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO_CHATWOOT');\nif (!/^\\d+$/.test(String($env.CHATWOOT_ACCOUNT_ID))) return fail(500, 'PENDENTE_CONFIGURACAO_CHATWOOT: CHATWOOT_ACCOUNT_ID não é numérico', 'PENDENTE_CONFIGURACAO_CHATWOOT');\nreturn [{ json: { ok: true } }];\n"
+      }
+    },
+    {
+      "id": "e1a7de80-ff64-5672-83c7-71d626c96f14",
+      "name": "Configuração OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3d4757c5-edd3-50c4-b433-a6cb9a97191e",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d419246d-f3a1-5c10-a950-87c3f4768f55",
+      "name": "Harpa — Listar conversas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "all"
+            },
+            {
+              "name": "assignee_type",
+              "value": "all"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.data || !$response.body.data.payload || $response.body.data.payload.length === 0 }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10
+            }
+          }
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "4a610393-76e3-5936-bdb8-aca497b66934",
+      "name": "Normaliza conversas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const canalDe = (ch) => ({\n  'Channel::Whatsapp': 'whatsapp', 'Channel::FacebookPage': 'facebook', 'Channel::Instagram': 'instagram',\n  'Channel::WebWidget': 'website', 'Channel::Telegram': 'telegram', 'Channel::Sms': 'sms', 'Channel::TwilioSms': 'sms'\n}[ch] || 'outro');\nconst vistos = new Set(); const conversas = [];\nfor (const it of $input.all()) {\n  const lista = (it.json.data && it.json.data.payload) || [];\n  for (const c of lista) {\n    if (vistos.has(c.id)) continue; vistos.add(c.id);\n    const s = (c.meta && c.meta.sender) || {};\n    const ult = c.last_non_activity_message || (c.messages && c.messages[c.messages.length - 1]) || null;\n    conversas.push({\n      id: c.id,\n      nome: s.name || s.phone_number || s.email || ('Conversa ' + c.id),\n      canal: canalDe(String((c.meta && c.meta.channel) || '')),\n      nao_lida: Number(c.unread_count || 0) > 0,\n      status: c.status,\n      contato: s.phone_number || null,\n      ultima_mensagem: (ult && ult.content) || null,\n      atualizado_em: c.last_activity_at ? new Date(c.last_activity_at * 1000).toISOString() : null\n    });\n  }\n}\nreturn [{ json: { status: 200, body: { conversas } } }];\n"
+      }
+    },
+    {
+      "id": "c27bdf70-b28c-5e06-940c-6f0cfb5725d5",
+      "name": "Formata erro Harpa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar conversas no Harpa\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"harpa\" } } }];\n"
+      }
+    },
+    {
+      "id": "b8fff1dc-94d7-5e8d-a266-7e50b93a72b5",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "31d30108-3cf8-5928-b7a9-bcbf0d9023f8",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Atendimento — Listar Conversas**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nEnv: CHATWOOT_DOMAIN, CHATWOOT_API_TOKEN, CHATWOOT_ACCOUNT_ID (já gravadas no .env do Harmonia pelo instalador).\nPagina até 10 páginas (250 conversas). Erro do Harpa → HTTP 502, nunca `conversas: []`.",
+        "height": 260,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida configuração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida configuração": {
+      "main": [
+        [
+          {
+            "node": "Configuração OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuração OK?": {
+      "main": [
+        [
+          {
+            "node": "Harpa — Listar conversas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Harpa — Listar conversas": {
+      "main": [
+        [
+          {
+            "node": "Normaliza conversas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Harpa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza conversas": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Harpa": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

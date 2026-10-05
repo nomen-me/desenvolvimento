@@ -1,0 +1,257 @@
+{
+  "name": "Synapse — Monitoramento — Métricas",
+  "nodes": [
+    {
+      "id": "53cad846-62d0-540e-bf6c-ae92263808c8",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "monitoramento/metricas",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "32bad84d-bcf4-55fb-814d-b4a38cfc1e2f"
+    },
+    {
+      "id": "bab2ca5b-b3bf-526f-b8a8-330e1bc97fe0",
+      "name": "Valida entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst b = $input.first().json.body || {};\nconst chart = String(b.chart || '');\nif (!/^[A-Za-z0-9_.\\-]{1,100}$/.test(chart)) return fail(400, 'chart ausente ou inválido');\nconst points = b.points === undefined ? 1 : Number(b.points);\nif (!Number.isInteger(points) || points < 1 || points > 3600) return fail(400, 'points inválido (1 a 3600)');\nconst after = b.after === undefined ? -1 : Number(b.after);\nif (!Number.isInteger(after)) return fail(400, 'after inválido (inteiro)');\nconst format = b.format === undefined ? 'json' : String(b.format);\nif (format !== 'json') return fail(400, 'Somente format=json é aceito');\nreturn [{ json: { ok: true, chart, points, after, format } }];\n"
+      }
+    },
+    {
+      "id": "08c1e864-1a7b-55fb-bd23-8607412f8367",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "24787ab2-097e-5971-beee-7b77f04eff14",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4e5ef774-d812-5b24-bf10-3e7e65fa5234",
+      "name": "Acorde — Netdata data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://acorde:19999/api/v1/data",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "chart",
+              "value": "={{ $json.chart }}"
+            },
+            {
+              "name": "points",
+              "value": "={{ $json.points }}"
+            },
+            {
+              "name": "after",
+              "value": "={{ $json.after }}"
+            },
+            {
+              "name": "format",
+              "value": "={{ $json.format }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000
+    },
+    {
+      "id": "af0e5245-a871-575f-88b9-3baf3a77fd77",
+      "name": "Normaliza resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const j = $input.first().json;\nconst base = (j.result && typeof j.result === 'object' && !Array.isArray(j.result)) ? j.result : j;\nif (!Array.isArray(base.labels) || !Array.isArray(base.data)) {\n  const m = 'Resposta inesperada do serviço de métricas (sem labels/data)';\n  return [{ json: { status: 502, body: { sucesso: false, erro: m, message: m } } }];\n}\nreturn [{ json: { status: 200, body: { labels: base.labels, data: base.data } } }];\n"
+      }
+    },
+    {
+      "id": "a41a4026-57bc-5fbb-ba9e-be0fd677908c",
+      "name": "Formata erro Acorde",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar o servi\\u00e7o de m\\u00e9tricas\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (false ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"acorde\" } } }];\n"
+      }
+    },
+    {
+      "id": "ccdb2a4e-8c23-5b02-aa05-303d31a675ac",
+      "name": "Responde ao Painel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "4863e012-25d6-5629-94e8-63befdaf1ad1",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -300
+      ],
+      "parameters": {
+        "content": "**Synapse — Monitoramento — Métricas**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nNetdata = container `acorde`, porta 19999, rede stack-network (compose do instalador, seção 10). Sem credencial: o Basic Auth fica só no Traefik.\nErros não revelam host interno. Resposta normalizada p/ {labels, data} no topo (formato esperado pelo Painel).",
+        "height": 260,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valida entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida entrada": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "Acorde — Netdata data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acorde — Netdata data": {
+      "main": [
+        [
+          {
+            "node": "Normaliza resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Acorde",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza resposta": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Acorde": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
