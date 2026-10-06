@@ -2,38 +2,361 @@
   "name": "Synapse — Lyra Interna — Alterar Registro",
   "nodes": [
     {
+      "id": "b0005868-a173-57d8-b546-a7e10ef82497",
+      "name": "Webhook — Alterar Registro",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "lyra/alterar",
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "webhook-lyra-alterar",
-      "name": "Webhook — Alterar Registro",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [
-        240,
-        300
-      ]
+      "webhookId": "a43f9da4-4aae-5e3d-9208-9684526a4d72"
     },
     {
+      "id": "339ea2f6-323d-521c-803b-5545a059f853",
+      "name": "Classifica Requisição",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
       "parameters": {
-        "jsCode": "// A ÚNICA coisa que não existe em lugar nenhum ainda é traduzir uma\n// instrução em português livre pra um diff estruturado de campos.\n// A gravação em si (depois de estruturado) é 100% o gerenciar_cadastro\n// que já existe no L2 — não duplicamos essa parte.\nconst referencia = \\\"Campos válidos por tipo_entidade (ERPNext):\\ncliente (Customer): customer_name, mobile_no, email_id, tax_id, customer_group\\nproduto (Item): item_name, standard_rate (preco), description, item_group\\nfornecedor (Supplier): supplier_name, mobile_no, email_id, tax_id, supplier_group\\\";\n\nconst system_prompt = 'Você traduz uma instrução em português pra um JSON de '\n  + 'campos a atualizar num ERP. Responda APENAS com um objeto JSON plano '\n  + '{\"campo\": valor, ...}, só com os campos que a instrução realmente pede '\n  + 'pra mudar, usando exatamente os nomes de campo da referência abaixo. '\n  + 'Não invente campo fora da lista. Se a instrução não corresponder a nenhum '\n  + 'campo conhecido, responda {}.\\\\n\\\\n' + referencia;\n\nconst user_prompt = 'tipo_entidade: ' + $json.tipo + '\\\\ninstrução: ' + $json.instrucao;\n\nreturn [{ json: { ...$json, modelo: 'gemini-2.0-flash', system_prompt, user_prompt } }];\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst it = $input.first().json; const b = it.body || {};\nconst tipo = String(b.tipo || '');\nif (tipo !== 'pedidos') return [{ json: { ok: true, cancelar: false, tipo, id: b.id, instrucao: b.instrucao } }];\n// Pedido: Synapse só cria e cancela. Não existe \"alterar pedido\".\nconst id = String(b.id || '').trim();\nif (!/^[A-Za-z0-9._ -]{1,140}$/.test(id)) return fail(400, 'id do pedido ausente ou inválido');\nif (!/cancel/i.test(String(b.instrucao || ''))) return fail(400, 'Pedidos só podem ser criados ou cancelados; alteração de pedido não existe');\nconst falta = ['ERPNEXT_DOMAIN', 'HARMONIA_DOMAIN'].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO: variáveis ausentes no Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO');\n// Identidade: SOMENTE a sessão do Ritmo (cookie sid). Nome/perfil/instrucao enviados pelo navegador NÃO são prova.\nconst cookie = String((it.headers || {}).cookie || '');\nconst m = cookie.match(/(?:^|;\\s*)sid=([^;]+)/);\nif (!m || m[1] === 'Guest') return fail(401, 'IDENTIDADE_NAO_VERIFICAVEL: a sessão do Ritmo não chegou ao Harmonia — cancelamento recusado (nenhuma alteração feita)', 'IDENTIDADE_NAO_VERIFICAVEL');\nreturn [{ json: { ok: true, cancelar: true, id, instrucao: String(b.instrucao).slice(0, 300), sid: m[1] } }];\n"
+      }
+    },
+    {
+      "id": "3f33817f-451f-519c-b1f5-3f04d7c67194",
+      "name": "Entrada válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e031394c-2d12-5549-bc42-78973247bbd3",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b1094ae6-9804-541e-8cd7-629eb190962f",
+      "name": "É cancelamento de pedido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b024d59c-f1a1-5453-9a70-ac4be6d4b2b1",
+              "leftValue": "={{ $json.cancelar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "04e172fc-d543-51a3-9bfc-eaffb252bfc6",
+      "name": "Ritmo — Usuário da sessão",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/method/frappe.auth.get_logged_user",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ 'sid=' + $json.sid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
       },
-      "id": "monta-prompt-alterar",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "1186ef53-6f15-523a-8c1b-f1f42c5ae54f",
+      "name": "Valida usuário",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst user = ($input.first().json || {}).message;\nif (!user || user === 'Guest') return fail(401, 'IDENTIDADE_NAO_VERIFICAVEL: sessão do Ritmo inválida ou expirada — cancelamento recusado', 'IDENTIDADE_NAO_VERIFICAVEL');\nconst c = $('Classifica Requisição').first().json;\nreturn [{ json: { ok: true, user, sid: c.sid, id: c.id, instrucao: c.instrucao } }];\n"
+      }
+    },
+    {
+      "id": "ed87dcc9-c25c-5b9c-9fca-ad1c27b8a5d2",
+      "name": "Sessão válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9102edca-d212-5bde-a9df-69d2af6517f8",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ac4c0d62-cefc-5763-9b48-7e2594fa917a",
+      "name": "Ritmo — Roles do usuário",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/User/{{ encodeURIComponent($json.user) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ 'sid=' + $json.sid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "8b1c8bdb-0d04-5516-b485-1eb9cd46c97d",
+      "name": "Autoriza solicitante",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst v = $('Valida usuário').first().json;\nconst doc = ($input.first().json || {}).data || {};\nconst roles = (doc.roles || []).map(r => r.role);\nconst permitidas = ['Synapse Lojista', 'Synapse Administrador'];\nif (!roles.some(r => permitidas.includes(r))) return fail(403, 'SEM_PERMISSAO: o usuário ' + v.user + ' não possui Role autorizada a cancelar pedidos (Synapse Lojista ou Synapse Administrador) — nada foi alterado', 'SEM_PERMISSAO');\nconst motivo = 'Cancelamento solicitado por ' + v.user + ' (Role validada no Ritmo). Contexto: ' + v.instrucao;\nreturn [{ json: { ok: true, user: v.user, id: v.id, motivo, l3: { funcao: 'processar_pedido', argumentos: { acao: 'cancelar', id_pedido: v.id, motivo }, conversa_id: null, tenant_id: null } } }];\n"
+      }
+    },
+    {
+      "id": "b5d1719e-d799-55a6-afc0-c3d8b0ed536b",
+      "name": "Autorizado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4bee6dde-14a3-5725-8977-1c2b8959f3a5",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2aa3c730-9ae2-5cbf-9589-46001e309b74",
+      "name": "Chama L3 — processar_pedido (cancelar)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2600,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HARMONIA_DOMAIN.replace(/\\/+$/, '') }}/webhook/lyra-l3-acao",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.l3) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d2a90da5-f14a-5b25-9be7-6c051837d70f",
+      "name": "Formata cancelamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json; const a = $('Autoriza solicitante').first().json;\nif (r.sucesso === true) {\n  const resumo = r.ja_cancelado ? 'Pedido ' + a.id + ' já estava cancelado (nada alterado)' : 'Pedido ' + a.id + ' cancelado no Ritmo e confirmado';\n  return [{ json: { status: 200, body: { sucesso: true, resumo, operation_id: r.operation_id, solicitante: a.user, etapas: (r.dados && r.dados.etapas) || [] } } }];\n}\nconst m = r.erro || 'Cancelamento não executado';\nreturn [{ json: { status: r.hold ? 409 : 502, body: { sucesso: false, erro: m, message: m, hold: !!r.hold, operation_id: r.operation_id || null, etapa_pendente: r.etapa_pendente || null } } }];\n"
+      }
+    },
+    {
+      "id": "c772e2ed-181c-5512-a98d-51e1eaec657d",
+      "name": "Formata erro Ritmo (identidade)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const fail = (status, m, codigo) => [{ json: { status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst it = $input.first().json || {}; const e = it.error || it;\nconst up = Number(e.httpCode || e.statusCode || 0);\nconst m = (up === 401 || up === 403) ? 'IDENTIDADE_NAO_VERIFICAVEL: o Ritmo recusou a sessão (HTTP ' + up + ') — cancelamento recusado' : 'Falha ao validar identidade no Ritmo' + (up ? ' (HTTP ' + up + ')' : '');\nreturn [{ json: { status: (up === 401 || up === 403) ? 401 : 502, body: { sucesso: false, erro: m, message: m, codigo: 'IDENTIDADE_NAO_VERIFICAVEL' } } }];\n"
+      }
+    },
+    {
+      "id": "c60eeb48-c301-5da7-aa04-4e3bd8cd7790",
+      "name": "Formata erro L3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao acionar a execu\\u00e7\\u00e3o do cancelamento (Lyra L3)\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"lyra-l3\" } } }];\n"
+      }
+    },
+    {
+      "id": "765cc30c-a10c-5c30-a636-8120e8518934",
       "name": "Monta Prompt de Interpretação",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
-        300
-      ]
+        3640,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const referencia = \"Campos válidos por tipo_entidade (ERPNext):\\ncliente (Customer): customer_name, mobile_no, email_id, tax_id, customer_group\\nproduto (Item): item_name, standard_rate (preco), description, item_group\\nfornecedor (Supplier): supplier_name, mobile_no, email_id, tax_id, supplier_group\";\nconst system_prompt = 'Você traduz uma instrução em português pra um JSON de campos a atualizar num ERP. Responda APENAS com um objeto JSON plano {\"campo\": valor, ...}, só com os campos que a instrução realmente pede pra mudar, usando exatamente os nomes de campo da referência abaixo. Não invente campo fora da lista. Se a instrução não corresponder a nenhum campo conhecido, responda {}.\\n\\n' + referencia;\nconst user_prompt = 'tipo_entidade: ' + $json.tipo + '\\ninstrução: ' + $json.instrucao;\nconst gemini = { system_instruction: { parts: [{ text: system_prompt }] }, contents: [{ role: 'user', parts: [{ text: user_prompt }] }], generationConfig: { response_mime_type: 'application/json' } };\nreturn [{ json: { tipo: $json.tipo, id: $json.id, gemini } }];\n"
+      }
     },
     {
+      "id": "55aec1f7-96b1-5d8d-8012-73b7964a2894",
+      "name": "Gemini Flash — Interpreta Instrução",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3900,
+        900
+      ],
       "parameters": {
-        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{$json.modelo}}:generateContent?key={{$env.GEMINI_API_KEY}}",
-        "requestMethod": "POST",
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -45,37 +368,39 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"system_instruction\": { \"parts\": [{ \"text\": \"{{$json.system_prompt}}\" }] },\n  \"contents\": [{ \"role\": \"user\", \"parts\": [{ \"text\": \"{{$json.user_prompt}}\" }] }],\n  \"generationConfig\": { \"response_mime_type\": \"application/json\" }\n}",
-        "options": {}
+        "jsonBody": "={{ JSON.stringify($json.gemini) }}",
+        "options": {
+          "timeout": 30000
+        }
       },
-      "id": "gemini-interpreta",
-      "name": "Gemini Flash — Interpreta Instrução",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [
-        680,
-        300
-      ],
-      "continueOnFail": true,
-      "notes": "Mesmo provedor/modelo já usado no Lyra_L1_triagem (Gemini Flash) — não introduz um segundo provedor de IA."
+      "onError": "continueErrorOutput"
     },
     {
-      "parameters": {
-        "jsCode": "const meta = $node['Monta Prompt de Interpretação'].json;\nconst resp = $input.first().json;\n\nlet diff = {};\ntry {\n  const texto = resp.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  diff = JSON.parse(texto);\n} catch(e) {\n  throw new Error('Lyra não conseguiu interpretar a instrução');\n}\n\nif (!Object.keys(diff).length) {\n  throw new Error('Nenhum campo reconhecido nessa instrução');\n}\n\nreturn [{\n  json: {\n    funcao: 'gerenciar_cadastro',\n    argumentos: {\n      acao: 'editar',\n      tipo_entidade: meta.tipo,\n      id_entidade: meta.id,\n      dados_cliente: diff\n    },\n    _resumo_campos: Object.keys(diff).join(', ')\n  }\n}];\n"
-      },
-      "id": "extrai-diff",
+      "id": "1f95fb53-5a2e-5695-ae1c-4266d04a9665",
       "name": "Extrai Diff Estruturado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        900,
-        300
-      ]
+        4160,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const meta = $('Monta Prompt de Interpretação').first().json;\nconst resp = $input.first().json;\nlet diff = {};\ntry { diff = JSON.parse(resp.candidates?.[0]?.content?.parts?.[0]?.text || '{}'); } catch (e) { throw new Error('Lyra não conseguiu interpretar a instrução'); }\nif (!Object.keys(diff).length) throw new Error('Nenhum campo reconhecido nessa instrução');\nreturn [{ json: { funcao: 'gerenciar_cadastro', argumentos: { acao: 'editar', tipo_entidade: meta.tipo, id_entidade: meta.id, dados_cliente: diff }, _resumo_campos: Object.keys(diff).join(', ') } }];\n"
+      }
     },
     {
+      "id": "9307e449-074e-57e8-a7ae-670dfe7ca503",
+      "name": "Chama L2 — gerenciar_cadastro (editar)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4420,
+        900
+      ],
       "parameters": {
-        "url": "={{$env.HARMONIA_DOMAIN}}/webhook/lyra-l2-consulta",
-        "requestMethod": "POST",
+        "method": "POST",
+        "url": "={{ $env.HARMONIA_DOMAIN.replace(/\\/+$/, '') }}/webhook/lyra-l2-consulta",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -87,46 +412,72 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{JSON.stringify({ funcao: $json.funcao, argumentos: $json.argumentos })}}",
-        "options": {}
+        "jsonBody": "={{ JSON.stringify({ funcao: $json.funcao, argumentos: $json.argumentos }) }}",
+        "options": {
+          "timeout": 30000
+        }
       },
-      "id": "chama-l2-alterar",
-      "name": "Chama L2 — gerenciar_cadastro (editar)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [
-        1120,
-        300
-      ],
-      "continueOnFail": true
+      "onError": "continueErrorOutput"
     },
     {
-      "parameters": {
-        "jsCode": "const meta = $node['Extrai Diff Estruturado'].json;\nconst resultadoL2 = $input.first().json;\n\nif (!resultadoL2.sucesso) {\n  return [{ json: { erro: resultadoL2.erro || 'Não foi possível salvar a alteração' } }];\n}\n\nreturn [{ json: { resumo: 'Campos atualizados: ' + meta._resumo_campos } }];\n"
-      },
-      "id": "formata-resposta-alterar",
+      "id": "16c47328-c9fd-58ce-8a46-414575a4a971",
       "name": "Formata Resposta pro Painel",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1340,
-        300
-      ]
+        4680,
+        900
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const meta = $('Extrai Diff Estruturado').first().json; const r = $input.first().json;\nif (!r.sucesso) return [{ json: { status: 200, body: { erro: r.erro || 'Não foi possível salvar a alteração' } } }];\nreturn [{ json: { status: 200, body: { resumo: 'Campos atualizados: ' + meta._resumo_campos } } }];\n"
+      }
     },
     {
+      "id": "b0a72757-818e-549d-889f-2ea08fce2506",
+      "name": "Formata erro legado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4940,
+        1100
+      ],
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{$json}}",
-        "options": {}
-      },
-      "id": "responde-lyra-alterar",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao alterar o registro\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"lyra-alterar\" } } }];\n"
+      }
+    },
+    {
+      "id": "44e9010f-e0f5-52a7-97b3-cca249be2cc3",
       "name": "Responde ao Painel",
       "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        5200,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "0f5e058b-cadf-5dc3-ad5a-dd48c01dd8b2",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1560,
-        300
-      ]
+        5460,
+        -420
+      ],
+      "parameters": {
+        "content": "**Synapse — Lyra Interna — Alterar Registro** (workflow existente, mesmo path)\nPedidos: SÓ cancelamento (não existe alterar pedido). Fluxo: identidade pela sessão do Ritmo (cookie sid → get_logged_user) → Roles do usuário lidas no Ritmo → exige Synapse Lojista ou Synapse Administrador → L3 processar_pedido/cancelar (mesmo executor existente).\nNome/perfil/instrucao do navegador NUNCA autorizam; 'solicitado por <nome>' é só contexto.\nFail-closed: sem sessão verificável = 401, nada alterado.\nRegistros (cliente/produto/fornecedor): comportamento anterior preservado.",
+        "height": 300,
+        "width": 600
+      }
     }
   ],
   "connections": {
@@ -134,7 +485,199 @@
       "main": [
         [
           {
+            "node": "Classifica Requisição",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classifica Requisição": {
+      "main": [
+        [
+          {
+            "node": "Entrada válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrada válida?": {
+      "main": [
+        [
+          {
+            "node": "É cancelamento de pedido?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É cancelamento de pedido?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Usuário da sessão",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Monta Prompt de Interpretação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Usuário da sessão": {
+      "main": [
+        [
+          {
+            "node": "Valida usuário",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo (identidade)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida usuário": {
+      "main": [
+        [
+          {
+            "node": "Sessão válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sessão válida?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Roles do usuário",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Roles do usuário": {
+      "main": [
+        [
+          {
+            "node": "Autoriza solicitante",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo (identidade)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Autoriza solicitante": {
+      "main": [
+        [
+          {
+            "node": "Autorizado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Autorizado?": {
+      "main": [
+        [
+          {
+            "node": "Chama L3 — processar_pedido (cancelar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chama L3 — processar_pedido (cancelar)": {
+      "main": [
+        [
+          {
+            "node": "Formata cancelamento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro L3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata cancelamento": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro L3": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro Ritmo (identidade)": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
             "type": "main",
             "index": 0
           }
@@ -160,6 +703,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Formata erro legado",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -182,10 +732,28 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Formata erro legado",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Formata Resposta pro Painel": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata erro legado": {
       "main": [
         [
           {
