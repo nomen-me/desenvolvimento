@@ -1,0 +1,91 @@
+{
+  "arquivo": "s_pre_correcao.html",
+  "backend": "Ritmo SIMULADO (semântica Frappe) — NÃO é evidência do Ritmo real",
+  "itens_servidor": 1206,
+  "blocos_item": [
+    [
+      0,
+      500,
+      500
+    ],
+    [
+      0,
+      500,
+      500
+    ]
+  ],
+  "resultados": [
+    {
+      "teste": "L0",
+      "descricao": "Alvos de teste estão FORA do primeiro bloco de 500 (posição ≥ 500 na ordem do servidor)",
+      "resultado": "PASS",
+      "detalhe": {
+        "0411": 0,
+        "0450": 1,
+        "90001": 1202,
+        "90002": 1203,
+        "ZETA-700": 1204
+      }
+    },
+    {
+      "teste": "L1",
+      "descricao": "Sincronização traz TODOS os Items (sem teto de 500) e pagina em blocos",
+      "resultado": "FAIL",
+      "detalhe": "catálogo local=500/1205; blocos Item (limit_start,tam,retornou)=[(0, 500, 500)]"
+    },
+    {
+      "teste": "L2",
+      "descricao": "Busca normal por nome: Item fora do 1º bloco é encontrado e lançado no PDV",
+      "resultado": "FAIL",
+      "detalhe": "EXCEÇÃO: Page.wait_for_selector: Timeout 8000ms exceeded."
+    },
+    {
+      "teste": "L3",
+      "descricao": "PLU/item_code exato + Enter: Item fora do 1º bloco é lançado",
+      "resultado": "FAIL",
+      "detalhe": "EXCEÇÃO: Page.wait_for_function: Timeout 8000ms exceeded."
+    },
+    {
+      "teste": "L4",
+      "descricao": "Hortifrúti: categoria → produto fora do 1º bloco; PLU+Enter; estoque (Bin paginado) correto",
+      "resultado": "FAIL",
+      "detalhe": "EXCEÇÃO: Page.click: Timeout 8000ms exceeded."
+    },
+    {
+      "teste": "L5",
+      "descricao": "Sincronização: preço alterado e Item novo (fora do 1º bloco) chegam ao catálogo local, sem duplicar",
+      "resultado": "FAIL",
+      "detalhe": "EXCEÇÃO: Page.evaluate: TypeError: Cannot read properties of undefined (reading 'preco')"
+    },
+    {
+      "teste": "L6",
+      "descricao": "Offline após sincronizar: Items fora do 1º bloco continuam buscáveis e lançáveis",
+      "resultado": "FAIL",
+      "detalhe": "EXCEÇÃO: Page.wait_for_selector: Timeout 8000ms exceeded."
+    },
+    {
+      "teste": "L7",
+      "descricao": "Itens usados nos testes L2–L6 estavam nas posições ≥ 500 do servidor",
+      "resultado": "PASS",
+      "detalhe": {
+        "0411": 0,
+        "0450": 1,
+        "90001": 1202,
+        "90002": 1203,
+        "ZETA-700": 1204
+      }
+    },
+    {
+      "teste": "L8",
+      "descricao": "Sem regressão no PDV: bipe, Categorias, F2, Hortifrúti com Item do 1º bloco",
+      "resultado": "PASS",
+      "detalhe": "bipe 0411, botão Categorias, F2 e Hortifrúti (item do 1º bloco) OK"
+    },
+    {
+      "teste": "L9",
+      "descricao": "Nenhum erro de JavaScript durante todo o roteiro",
+      "resultado": "PASS",
+      "detalhe": []
+    }
+  ]
+}

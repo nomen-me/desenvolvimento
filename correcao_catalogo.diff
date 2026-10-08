@@ -1,0 +1,38 @@
+1677a1678,1696
+>   /* Lê TODOS os registros de um doctype, em blocos (limit_start/limit_page_length) e ordem estável (order_by name asc).
+>      Sem teto artificial: só termina quando o Ritmo devolve um bloco vazio. Se qualquer bloco falhar, lança erro — nada parcial é devolvido. */
+>   async listarTodos(doctype, { campos=['name'], filtros=null, ordem='name asc', bloco=500, maximo=1000000 } = {}){
+>     const todos = []; let inicio = 0, primeiroAnterior = null;
+>     for (;;){
+>       const params = { fields: JSON.stringify(campos), limit_page_length: bloco, limit_start: inicio, order_by: ordem };
+>       if (filtros) params.filters = JSON.stringify(filtros);
+>       const r = await this._request('/api/resource/' + encodeURIComponent(doctype), { params });
+>       const lote = (r && r.data) || [];
+>       if (!lote.length) break;
+>       const primeiro = JSON.stringify(lote[0]);
+>       if (primeiroAnterior !== null && primeiro === primeiroAnterior) throw new Error('O Ritmo ignorou a paginação (limit_start) — leitura interrompida para não duplicar registros');
+>       primeiroAnterior = primeiro;
+>       for (const x of lote) todos.push(x);
+>       inicio += lote.length;
+>       if (inicio >= maximo) throw new Error('Limite de segurança de ' + maximo + ' registros atingido em ' + doctype);
+>     }
+>     return { data: todos };
+>   },
+5154c5173
+<       const r = await Ritmo.listar(SYNAPSE_CONFIG.doctypes.produto, { campos:['item_code','item_name','standard_rate','custom_composicao','item_group','image'], limite:500 });
+---
+>       const r = await Ritmo.listarTodos(SYNAPSE_CONFIG.doctypes.produto, { campos:['item_code','item_name','standard_rate','custom_composicao','item_group','image'] }); // todos os Items, em blocos de 500
+5163c5182
+<           const rb = await Ritmo.listar(SYNAPSE_CONFIG.doctypes.bin, { campos:['item_code','actual_qty'], filtros:[['warehouse','=',deposito]], limite:1000 });
+---
+>           const rb = await Ritmo.listarTodos(SYNAPSE_CONFIG.doctypes.bin, { campos:['item_code','actual_qty'], filtros:[['warehouse','=',deposito]] });
+5173a5193
+>       const anteriores = new Map(pdvCatalogoCache.map(p => [p.item_code, p]));
+5175c5195
+<         const anterior = pdvCatalogoCache.find(p => p.item_code === it.item_code);
+---
+>         const anterior = anteriores.get(it.item_code);
+5187c5207
+<         const rg = await Ritmo.listar(SYNAPSE_CONFIG.doctypes.grupoItem, { campos:['name','parent_item_group'], limite:500 });
+---
+>         const rg = await Ritmo.listarTodos(SYNAPSE_CONFIG.doctypes.grupoItem, { campos:['name','parent_item_group'] });

@@ -1,0 +1,92 @@
+[
+  {
+    "teste": 1,
+    "descricao": "Abrir Hortifrúti/Pesáveis (botão de acesso rápido)",
+    "resultado": "PASS",
+    "detalhe": ""
+  },
+  {
+    "teste": 2,
+    "descricao": "Categorias visíveis sem rolagem (e sem categorias de fora do Hortifrúti)",
+    "resultado": "PASS",
+    "detalhe": "categorias=['Frutas', 'Hortaliças', 'Legumes', 'Raízes', 'Temperos', '__outras__']; dentro_da_tela=True; sem_rolagem=True"
+  },
+  {
+    "teste": 3,
+    "descricao": "Selecionar categoria por teclado (Tab/setas/Enter)",
+    "resultado": "PASS",
+    "detalhe": "foco inicial=Frutas, foco ao dar Enter=Raízes"
+  },
+  {
+    "teste": 4,
+    "descricao": "Produtos da categoria com foto (carregada), nome e PLU; sem foto → iniciais; esgotado marcado",
+    "resultado": "PASS",
+    "detalhe": "[{\"cod\": \"4090\", \"nome\": \"Batata Doce\", \"plu\": \"Alt+1\\nBA\\nBatata Doce\\nPLU 4090\", \"img\": false, \"carregou\": false, \"sem\": true}, {\"cod\": \"4050\", \"nome\": \"Cenoura\", \"plu\": \"Alt+2\\nCenoura\\nPLU 4050\", \"img\": true, \"carregou\": true, \"sem\": false}, {\"cod\": \"4140\", \"nome\": \"Mandioca\", \"plu\": \"Alt+3\\nMandioca\\nPLU 4140\\nEsgotado\", \"img\": true, \"carregou\": true, \"sem\": false}]"
+  },
+  {
+    "teste": 5,
+    "descricao": "Selecionar produto pela imagem (mouse)",
+    "resultado": "PASS",
+    "detalhe": ""
+  },
+  {
+    "teste": 6,
+    "descricao": "Produto correto lançado no PDV (Cenoura, qtd 1, preço do Ritmo) e visível no carrinho",
+    "resultado": "PASS",
+    "detalhe": "carrinho=[{'c': '4050', 'n': 'Cenoura', 'q': 1}]"
+  },
+  {
+    "teste": "6b",
+    "descricao": "Produto esgotado não é lançado",
+    "resultado": "PASS",
+    "detalhe": ""
+  },
+  {
+    "teste": 7,
+    "descricao": "Esc volta às categorias; PLU digitado + Enter",
+    "resultado": "PASS",
+    "detalhe": ""
+  },
+  {
+    "teste": 8,
+    "descricao": "Mesmo produto correto lançado pelo PLU (Banana Prata, qtd 1), cenoura intacta",
+    "resultado": "PASS",
+    "detalhe": "carrinho=[{'c': '4050', 'n': 'Cenoura', 'q': 1}, {'c': '4087', 'n': 'Banana Prata', 'q': 1}]"
+  },
+  {
+    "teste": "8b",
+    "descricao": "PLU inexistente avisa e não lança nada",
+    "resultado": "PASS",
+    "detalhe": ""
+  },
+  {
+    "teste": 9,
+    "descricao": "Indisponibilidade da visão sinalizada ao operador, sem bloquear a tela",
+    "resultado": "PASS",
+    "detalhe": "Identificação automática indisponível (timeout da identificação) — escolha a categoria e o produto, ou digite o PLU e Enter."
+  },
+  {
+    "teste": 10,
+    "descricao": "Offline + visão indisponível: produtos paginados sem rolagem; mouse, PgDn/Alt+1 e PLU continuam lançando",
+    "resultado": "PASS",
+    "detalhe": "área={'sh': 359, 'ch': 359, 'n': 12, 'todos': True}; pager=◀ PgUp\nPágina 1 de 3\nPgDn ▶; lançados=['4050', '4087', '5012', '4011']"
+  },
+  {
+    "teste": 11,
+    "descricao": "Usa os mecanismos existentes: Ritmo.listar(Item/Item Group), catálogo local, adicionarAoCarrinhoPDVPorCodigo; sem nova store/DocType/tabela de PLU",
+    "resultado": "PASS",
+    "detalhe": "fields_Item=[\"item_code\",\"item_name\",\"standard_rate\",\"custom_composicao\",\"item_group\",\"image\"]; lançamentos=['4050', '4087', '4087', '5012', '4011']; idb=[{'nome': 'synapse-pdv', 'versao': 4, 'stores': ['caixa', 'catalogo', 'clientes', 'composicoes', 'config', 'fila', 'vendas_suspensas', 'vendedores']}]; local={'imagem': '/files/cenoura.png', 'grupos': 9}"
+  },
+  {
+    "teste": "12",
+    "descricao": "Preservação: bipe por código + Enter, botão Categorias, F2 e grade original continuam funcionando",
+    "resultado": "PASS",
+    "detalhe": ""
+  },
+  {
+    "teste": "13",
+    "descricao": "Nenhum erro de JavaScript na página durante todo o roteiro",
+    "resultado": "PASS",
+    "detalhe": []
+  }
+]

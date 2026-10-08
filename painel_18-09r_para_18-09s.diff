@@ -1,0 +1,200 @@
+381a382,404
+> /* Hortifrúti / Pesáveis — contingência visual (pdvHf*). Sem rolagem vertical: categorias em grade fixa, produtos paginados. */
+> .pdv-hf-wrap{display:none;flex:1;flex-direction:column;min-height:0;padding:12px 16px;gap:10px;overflow:hidden}
+> .pdv-hf-wrap.open{display:flex}
+> .pdv-hf-wrap:focus{outline:none}
+> .pdv-hf-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+> .pdv-hf-top .pdv-hf-titulo{font-size:14px;font-weight:600;margin-right:auto}
+> .pdv-hf-plu{width:150px;font-family:var(--mono)}
+> .pdv-hf-aviso{font-size:11.5px;padding:6px 10px;border-radius:8px;border:1px solid var(--rule);color:var(--ghost)}
+> .pdv-hf-aviso.off{border-color:var(--danger);color:var(--danger)}
+> .pdv-hf-ultimo{font-size:12px;color:var(--signal);min-height:16px}
+> .pdv-hf-cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-content:start}
+> .pdv-hf-prods{flex:1;min-height:0;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));grid-auto-rows:150px;gap:10px;align-content:start}
+> .pdv-hf-tile{background:var(--ink-mid);border:1px solid var(--rule);border-radius:10px;color:inherit;font:inherit;cursor:pointer;text-align:center;position:relative;padding:10px}
+> .pdv-hf-tile:hover,.pdv-hf-tile:focus-visible{border-color:var(--signal);outline:none}
+> .pdv-hf-tile.esgotado{opacity:.4;cursor:not-allowed}
+> .pdv-hf-cat{min-height:110px;font-size:15px;font-weight:600;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+> .pdv-hf-cat small{font-size:11px;font-weight:400;color:var(--ghost)}
+> .pdv-hf-atalho{position:absolute;top:6px;left:8px;font-family:var(--mono);font-size:10px;color:var(--ghost)}
+> .pdv-hf-foto{width:100%;height:82px;object-fit:cover;border-radius:6px;display:block;margin-bottom:6px;background:var(--ink)}
+> .pdv-hf-foto.semfoto{display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600;color:var(--ghost)}
+> .pdv-hf-nome{font-size:12px;font-weight:600;line-height:1.25;max-height:30px;overflow:hidden}
+> .pdv-hf-codigo{font-family:var(--mono);font-size:11px;color:var(--signal);margin-top:2px}
+> .pdv-hf-pager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:12px;color:var(--ghost)}
+635a659,668
+>           <div class="pdv-hf-wrap" id="pdv-hf" tabindex="-1" onkeydown="pdvHfTecla(event)">
+>             <div class="pdv-hf-top">
+>               <button class="syn-btn ghost" style="padding:6px 10px;font-size:12px" id="pdv-hf-voltar" onclick="pdvHfVoltar()"><i class="fa-solid fa-arrow-left"></i> <span id="pdv-hf-voltar-txt">Voltar às vendas</span></button>
+>               <div class="pdv-hf-titulo" id="pdv-hf-titulo">Hortifrúti / Pesáveis</div>
+>               <input class="syn-input pdv-hf-plu" id="pdv-hf-plu" placeholder="PLU + Enter" autocomplete="off" inputmode="numeric" onkeydown="if(event.key==='Enter'){event.preventDefault();pdvHfPorPlu(this.value)}">
+>             </div>
+>             <div class="pdv-hf-aviso" id="pdv-hf-aviso"></div>
+>             <div class="pdv-hf-ultimo" id="pdv-hf-ultimo"></div>
+>             <div id="pdv-hf-corpo" style="display:contents"></div>
+>           </div>
+643a677
+>             <button class="syn-btn ghost" style="padding:6px 10px;font-size:11px" onclick="pdvHfAbrir()" title="Atalho: F3" id="pdv-btn-hf"><i class="fa-solid fa-carrot"></i> Hortifrúti / Pesáveis</button>
+1467a1502
+>     grupoItem: 'Item Group', // árvore nativa de categorias do ERPNext — lida só p/ Hortifrúti/Pesáveis (pdvHf*); nada é criado
+4862a4898
+>     else if (ev.key === 'F3'){ ev.preventDefault(); pdvHfAbrir(); }
+5118c5154
+<       const r = await Ritmo.listar(SYNAPSE_CONFIG.doctypes.produto, { campos:['item_code','item_name','standard_rate','custom_composicao','item_group'], limite:500 });
+---
+>       const r = await Ritmo.listar(SYNAPSE_CONFIG.doctypes.produto, { campos:['item_code','item_name','standard_rate','custom_composicao','item_group','image'], limite:500 });
+5144c5180
+<         await pdvPut('catalogo', { item_code:it.item_code, nome:it.item_name||it.item_code, preco:Number(it.standard_rate)||0, estoque:estoqueRitmo, composicao_id: it.custom_composicao || null, categoria: it.item_group || null });
+---
+>         await pdvPut('catalogo', { item_code:it.item_code, nome:it.item_name||it.item_code, preco:Number(it.standard_rate)||0, estoque:estoqueRitmo, composicao_id: it.custom_composicao || null, categoria: it.item_group || null, imagem: it.image || null });
+5149a5186,5189
+>       try { // árvore de categorias (Item Group) p/ Hortifrúti/Pesáveis — falha aqui nunca derruba o catálogo
+>         const rg = await Ritmo.listar(SYNAPSE_CONFIG.doctypes.grupoItem, { campos:['name','parent_item_group'], limite:500 });
+>         await pdvPut('config', { chave:'grupos_item', itens:(rg.data||[]).map(g => ({ name:g.name, parent:g.parent_item_group||null })) });
+>       } catch(e){ console.warn('Hortifrúti: categorias não atualizadas — usando a última cópia local.', e.message); }
+5154a5195
+>   if (pdvHfAberto) pdvHfRender();
+5238a5280,5422
+> 
+> /* ---- Hortifrúti / Pesáveis — contingência visual de identificação.
+>    Reaproveita só o que já existe: catálogo local (Item → IndexedDB 'catalogo'),
+>    a árvore nativa de categorias do ERPNext (Item Group, em 'config'), a foto
+>    nativa do Item (Item.image) e o MESMO lançamento do PDV
+>    (adicionarAoCarrinhoPDVPorCodigo). "PLU" = item_code, o identificador que o
+>    PDV já usa para bipar (buscarProdutoPDV com Enter) — não existe tabela de
+>    PLU paralela. Funciona offline e só com teclado e mouse. A visão computacional
+>    é o caminho principal; este painel NUNCA depende dela: pdvVisao só informa o
+>    estado ao operador (quem integrar a câmera chama pdvVisaoMarcar*). ---- */
+> const PDV_HF_GRUPO_RAIZ = 'Hortifrúti'; // grupo-pai em Item Group; as categorias são seus filhos diretos (comparação sem acento/caixa)
+> const PDV_HF_OUTRAS = '__outras__';
+> let pdvHfAberto = false, pdvHfCategoria = null, pdvHfPagina = 0, pdvHfGrupos = [];
+> const pdvVisao = { disponivel: null, motivo: null };
+> function pdvVisaoMarcarIndisponivel(motivo){ pdvVisao.disponivel = false; pdvVisao.motivo = motivo || 'indisponível'; pdvHfAtualizarAviso(); }
+> function pdvVisaoMarcarDisponivel(){ pdvVisao.disponivel = true; pdvVisao.motivo = null; pdvHfAtualizarAviso(); }
+> function pdvHfNorm(s){ return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase(); }
+> function pdvHfCategoriaDe(grupo){
+>   if (!grupo) return null;
+>   const raizN = pdvHfNorm(PDV_HF_GRUPO_RAIZ);
+>   if (pdvHfNorm(grupo) === raizN) return PDV_HF_OUTRAS;
+>   let atual = pdvHfGrupos.find(g => g.name === grupo), guarda = 0;
+>   while (atual && guarda++ < 20){
+>     if (atual.parent && pdvHfNorm(atual.parent) === raizN) return atual.name;
+>     atual = pdvHfGrupos.find(g => g.name === atual.parent);
+>   }
+>   return null;
+> }
+> function pdvHfProdutos(){
+>   return pdvCatalogoCache.map(p => ({ p, cat: pdvHfCategoriaDe(p.categoria) })).filter(x => x.cat);
+> }
+> function pdvHfCategorias(){
+>   const cont = {};
+>   pdvHfProdutos().forEach(x => { cont[x.cat] = (cont[x.cat] || 0) + 1; });
+>   const lista = Object.keys(cont).map(k => ({ chave: k, nome: k === PDV_HF_OUTRAS ? 'Outras' : k, qtd: cont[k] }));
+>   lista.sort((a, b) => (a.chave === PDV_HF_OUTRAS) - (b.chave === PDV_HF_OUTRAS) || a.nome.localeCompare(b.nome, 'pt-BR'));
+>   return lista;
+> }
+> function pdvHfImgUrl(img){
+>   if (!img) return null;
+>   if (/^https?:\/\//i.test(img)) return img;
+>   return img.charAt(0) === '/' ? SYNAPSE_ENV.ritmo + img : null;
+> }
+> function pdvHfImgErro(el){
+>   const d = document.createElement('div'); d.className = 'pdv-hf-foto semfoto'; d.textContent = el.getAttribute('data-ini') || '?';
+>   el.replaceWith(d);
+> }
+> async function pdvHfAbrir(){
+>   const op = document.getElementById('pdv-operacao');
+>   if (!op || op.style.display === 'none' || !pdvCaixaAtual){ toast('Abra o caixa para usar Hortifrúti / Pesáveis', 'err'); return; }
+>   try { const cfg = await pdvGet('config', 'grupos_item'); pdvHfGrupos = (cfg && cfg.itens) || []; } catch(e){ pdvHfGrupos = []; }
+>   pdvHfAberto = true; pdvHfCategoria = null; pdvHfPagina = 0;
+>   document.getElementById('pdv-produto-grid').style.display = 'none';
+>   document.getElementById('pdv-hf').classList.add('open');
+>   pdvHfAtualizarAviso();
+>   pdvHfRender();
+>   document.getElementById('pdv-hf-plu').focus();
+> }
+> function pdvHfFechar(){
+>   pdvHfAberto = false;
+>   document.getElementById('pdv-hf').classList.remove('open');
+>   document.getElementById('pdv-produto-grid').style.display = '';
+>   const b = document.getElementById('pdv-busca-produto'); if (b) b.focus();
+> }
+> function pdvHfVoltar(){ if (pdvHfCategoria){ pdvHfCategoria = null; pdvHfPagina = 0; pdvHfRender(); document.getElementById('pdv-hf-plu').focus(); } else pdvHfFechar(); }
+> function pdvHfAtualizarAviso(){
+>   const el = document.getElementById('pdv-hf-aviso'); if (!el) return;
+>   const off = pdvVisao.disponivel === false;
+>   el.classList.toggle('off', off);
+>   el.textContent = off
+>     ? 'Identificação automática indisponível (' + pdvVisao.motivo + ') — escolha a categoria e o produto, ou digite o PLU e Enter.'
+>     : (pdvVisao.disponivel === true ? 'Identificação automática ativa. Se falhar, escolha a categoria e o produto, ou digite o PLU e Enter.'
+>                                     : 'Escolha a categoria e o produto, ou digite o PLU e Enter.');
+> }
+> function pdvHfRender(){
+>   const corpo = document.getElementById('pdv-hf-corpo'); if (!corpo) return;
+>   const titulo = document.getElementById('pdv-hf-titulo'), vt = document.getElementById('pdv-hf-voltar-txt');
+>   if (!pdvHfCategoria){
+>     titulo.textContent = 'Hortifrúti / Pesáveis'; vt.textContent = 'Voltar às vendas';
+>     const cats = pdvHfCategorias();
+>     if (!cats.length){
+>       corpo.innerHTML = '<div style="color:var(--ghost);font-size:12.5px;padding:24px 0">Nenhum produto de ' + pdvEscHtml(PDV_HF_GRUPO_RAIZ) + ' no catálogo local. Cadastre os Itens no grupo "' + pdvEscHtml(PDV_HF_GRUPO_RAIZ) + '" (ou em subgrupos) e sincronize. O PLU digitado continua funcionando para qualquer Item do catálogo.</div>';
+>       return;
+>     }
+>     corpo.innerHTML = '<div class="pdv-hf-cats" id="pdv-hf-lista">' + cats.map((c, i) =>
+>       '<button type="button" class="pdv-hf-tile pdv-hf-cat" data-cat="' + pdvEsc(c.chave) + '" onclick="pdvHfEscolherCategoria(this.dataset.cat)">' +
+>       (i < 9 ? '<span class="pdv-hf-atalho">Alt+' + (i + 1) + '</span>' : '') + pdvEscHtml(c.nome) + '<small>' + c.qtd + ' produto' + (c.qtd === 1 ? '' : 's') + '</small></button>').join('') + '</div>';
+>     return;
+>   }
+>   const nomeCat = pdvHfCategoria === PDV_HF_OUTRAS ? 'Outras' : pdvHfCategoria;
+>   titulo.textContent = 'Hortifrúti / Pesáveis — ' + nomeCat; vt.textContent = 'Categorias';
+>   corpo.innerHTML = '<div class="pdv-hf-prods" id="pdv-hf-lista"></div><div class="pdv-hf-pager" id="pdv-hf-pager"></div>';
+>   pdvHfRenderProdutos();
+> }
+> function pdvHfRenderProdutos(){
+>   const area = document.getElementById('pdv-hf-lista'); if (!area || !pdvHfCategoria) return;
+>   const itens = pdvHfProdutos().filter(x => x.cat === pdvHfCategoria).map(x => x.p).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+>   const cols = Math.max(1, Math.floor((area.clientWidth + 10) / 140)), linhas = Math.max(1, Math.floor((area.clientHeight + 10) / 160));
+>   const porPagina = Math.max(6, cols * linhas), paginas = Math.max(1, Math.ceil(itens.length / porPagina));
+>   pdvHfPagina = Math.min(Math.max(0, pdvHfPagina), paginas - 1);
+>   area.innerHTML = itens.slice(pdvHfPagina * porPagina, (pdvHfPagina + 1) * porPagina).map((p, i) => {
+>     const esgotado = p.estoque != null && p.estoque <= 0, url = pdvHfImgUrl(p.imagem), ini = pdvEscHtml(String(p.nome).trim().slice(0, 2).toUpperCase());
+>     const plu = /^\d{1,6}$/.test(p.item_code) ? '<div class="pdv-hf-codigo">PLU ' + pdvEscHtml(p.item_code) + '</div>' : '';
+>     return '<button type="button" class="pdv-hf-tile pdv-hf-prod' + (esgotado ? ' esgotado' : '') + '" data-codigo="' + pdvEsc(p.item_code) + '"' + (esgotado ? ' disabled' : ' onclick="pdvHfLancar(this.dataset.codigo)"') + '>' +
+>       (i < 9 ? '<span class="pdv-hf-atalho">Alt+' + (i + 1) + '</span>' : '') +
+>       (url ? '<img class="pdv-hf-foto" src="' + pdvEsc(url) + '" alt="' + pdvEsc(p.nome) + '" data-ini="' + ini + '" onerror="pdvHfImgErro(this)">' : '<div class="pdv-hf-foto semfoto">' + ini + '</div>') +
+>       '<div class="pdv-hf-nome">' + pdvEscHtml(p.nome) + '</div>' + plu + (esgotado ? '<div class="pdv-hf-codigo" style="color:var(--danger)">Esgotado</div>' : '') + '</button>';
+>   }).join('') || '<div style="color:var(--ghost);font-size:12.5px">Sem produtos nesta categoria.</div>';
+>   const pg = document.getElementById('pdv-hf-pager');
+>   pg.innerHTML = paginas > 1 ? '<button type="button" class="syn-btn ghost" style="padding:4px 10px;font-size:12px" onclick="pdvHfMudarPagina(-1)" ' + (pdvHfPagina === 0 ? 'disabled' : '') + '>◀ PgUp</button><span>Página ' + (pdvHfPagina + 1) + ' de ' + paginas + '</span><button type="button" class="syn-btn ghost" style="padding:4px 10px;font-size:12px" onclick="pdvHfMudarPagina(1)" ' + (pdvHfPagina >= paginas - 1 ? 'disabled' : '') + '>PgDn ▶</button>' : '';
+>   pdvHfRestaurarFoco(area);
+> }
+> function pdvHfMudarPagina(d){ pdvHfPagina += d; pdvHfRenderProdutos(); }
+> function pdvHfRestaurarFoco(area){ // repaginar substitui os botões: sem isso o foco cai no <body> e o teclado "some"
+>   const ae = document.activeElement, painel = document.getElementById('pdv-hf');
+>   if (!ae || ae === document.body || !painel.contains(ae)){ const t = area.querySelector('.pdv-hf-prod:not([disabled])'); (t || document.getElementById('pdv-hf-plu')).focus(); }
+> }
+> function pdvHfEscolherCategoria(chave){ pdvHfCategoria = chave; pdvHfPagina = 0; pdvHfRender(); const t = document.querySelector('#pdv-hf-lista .pdv-hf-prod:not([disabled])'); if (t) t.focus(); }
+> function pdvHfFeedback(txt){ const el = document.getElementById('pdv-hf-ultimo'); if (el) el.textContent = txt; }
+> function pdvHfLancar(codigo){
+>   const p = pdvCatalogoCache.find(x => x.item_code === codigo); if (!p) return;
+>   adicionarAoCarrinhoPDVPorCodigo(codigo); // o MESMO lançamento do PDV (estoque, composição, carrinho)
+>   pdvHfFeedback('Lançado: ' + p.nome + (/^\d{1,6}$/.test(p.item_code) ? ' (PLU ' + p.item_code + ')' : ''));
+> }
+> function pdvHfPorPlu(valor){
+>   const plu = String(valor || '').trim(); const campo = document.getElementById('pdv-hf-plu');
+>   if (!plu) return;
+>   const p = pdvCatalogoCache.find(x => x.item_code === plu); // mesma regra do bipe: item_code exato
+>   if (!p){ pdvHfFeedback('PLU ' + plu + ' não encontrado'); toast('PLU ' + plu + ' não encontrado no catálogo', 'err'); campo.select(); return; }
+>   pdvHfLancar(plu); campo.value = ''; campo.focus();
+> }
+> function pdvHfTecla(ev){
+>   if (ev.key === 'Escape'){ ev.preventDefault(); pdvHfVoltar(); return; }
+>   if (ev.altKey && /^[1-9]$/.test(ev.key)){ const t = document.querySelectorAll('#pdv-hf-lista .pdv-hf-tile:not([disabled])')[Number(ev.key) - 1]; if (t){ ev.preventDefault(); t.click(); } return; }
+>   if (ev.key === 'PageDown' && pdvHfCategoria){ ev.preventDefault(); pdvHfMudarPagina(1); return; }
+>   if (ev.key === 'PageUp' && pdvHfCategoria){ ev.preventDefault(); pdvHfMudarPagina(-1); return; }
+>   if (ev.target && ev.target.classList && ev.target.classList.contains('pdv-hf-tile') && /^Arrow/.test(ev.key)){
+>     const ts = [...document.querySelectorAll('#pdv-hf-lista .pdv-hf-tile:not([disabled])')], i = ts.indexOf(ev.target);
+>     const j = (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') ? Math.min(ts.length - 1, i + 1) : Math.max(0, i - 1);
+>     ev.preventDefault(); if (ts[j]) ts[j].focus();
+>   }
+> }
+> window.addEventListener('resize', () => { if (pdvHfAberto && pdvHfCategoria) pdvHfRenderProdutos(); });

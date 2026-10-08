@@ -1,0 +1,5 @@
+ANTES (pré-correção): node --check bloco 0 (341925 bytes) -> OK (exit 0)
+ANTES (pré-correção): sha256 3faed739d7b4e32b
+DEPOIS (corrigido): node --check bloco 0 (343293 bytes) -> OK (exit 0)
+DEPOIS (corrigido): sha256 db4a38bb124523ff
+node v22.22.2
