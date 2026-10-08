@@ -1,746 +1,139 @@
 {
-  "name": "Synapse — Lyra Interna — Gerar Atributos de Produto",
-  "nodes": [
-    {
-      "id": "389b0dc0-b7d1-5397-8740-7ee5fa5f14fb",
-      "name": "Webhook — Gerar Atributos",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        0,
-        0
-      ],
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "lyra/gerar-atributos",
-        "responseMode": "responseNode",
-        "options": {}
-      },
-      "webhookId": "ed44704c-18e3-5097-829e-4a44eddc9841"
-    },
-    {
-      "id": "8925c59f-c3d4-5ecb-9b0f-4e7ae0b34ee0",
-      "name": "Classifica Requisição",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        260,
-        0
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const it = $input.first(); const b = it.json.body || {};\nconst temImagem = !!(it.binary && it.binary.imagem);\nconst descricao = typeof b.descricao === 'string' ? b.descricao.trim() : '';\n// Upload de cadastro (Cadastro de Produtos): tipo=produtos + texto e/ou imagem. Qualquer outra chamada = geração de atributos (comportamento anterior).\nconst cadastrar = String(b.tipo || '') === 'produtos' && (descricao.length > 0 || temImagem);\nreturn [{ json: { cadastrar, descricao, body: b }, binary: it.binary }];\n"
-      }
-    },
-    {
-      "id": "a5b6cee6-12c3-53e1-917e-acc2af8ff5b0",
-      "name": "É cadastro (texto/imagem)?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        520,
-        0
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "d5bc21f4-89a2-5d67-a775-4ab80d849cff",
-              "leftValue": "={{ $json.cadastrar }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "f8e3e4c9-e1f6-5f8c-b79e-bc86d7d0c0d4",
-      "name": "Monta Prompt de Geração",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        780,
-        300
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Função genuinamente nova — geração/inferência não existe em nenhum\n// workflow atual (gerenciar_cadastro só grava o que já vem pronto).\nconst system_prompt = 'Você sugere atributos de catálogo pra um produto de '\n + 'e-commerce brasileiro, a partir dos dados que o lojista já digitou. '\n + 'Responda APENAS com um objeto JSON: {\"categoria\": string|null, \"ncm\": '\n + 'string|null (formato 0000.00.00), \"preco\": string|null (formato \"R$ 00,00\"), '\n + '\"justificativa\": string|null}. Para cada atributo, só preencha um valor se '\n + 'os dados fornecidos derem base real pra isso. Se não houver informação '\n + 'suficiente pra um atributo, retorne null nesse atributo — NUNCA invente ou '\n + 'estime um valor sem base nos dados. Quando qualquer atributo vier null, '\n + 'preencha \"justificativa\" com uma frase curta dizendo o que falta pra '\n + 'estimar (ex.: \"sem categoria ou palavras-chave do produto, não é possível '\n + 'sugerir NCM nem preço\"). Dado desconhecido é uma resposta válida.';\nconst gemini = { system_instruction: { parts: [{ text: system_prompt }] },\n  contents: [{ role: 'user', parts: [{ text: JSON.stringify($json.body || {}) }] }],\n  generationConfig: { response_mime_type: 'application/json' } };\nreturn [{ json: { gemini } }];\n"
-      }
-    },
-    {
-      "id": "2595ab3f-0c1c-5491-8c63-fc305a4efc86",
-      "name": "Gemini Flash — Gera Atributos",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1040,
-        300
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "key",
-              "value": "={{ $env.GEMINI_API_KEY }}"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.gemini) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "c9cf43e1-dcb5-507d-83a7-85c406c2b392",
-      "name": "Formata Resposta pro Painel",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1300,
-        300
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const resp = $input.first().json;\nlet atributos = { categoria: null, ncm: null, preco: null, justificativa: null };\ntry {\n  const texto = resp.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  const parsed = JSON.parse(texto);\n  // Só aceita o que veio de fato — não troca null por '' nem inventa default.\n  atributos = { categoria: parsed.categoria ?? null, ncm: parsed.ncm ?? null, preco: parsed.preco ?? null, justificativa: parsed.justificativa ?? null };\n} catch (e) { atributos.justificativa = 'Não foi possível interpretar a resposta da Lyra agora'; }\nreturn [{ json: { status: 200, body: atributos } }];\n"
-      }
-    },
-    {
-      "id": "4d44c684-5a19-576d-b784-072676151951",
-      "name": "Prepara Extração",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1560,
-        600
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst falta = ['GEMINI_API_KEY', 'ERPNEXT_DOMAIN', 'ERPNEXT_API_KEY', 'ERPNEXT_API_SECRET'].filter(k => !$env[k]);\nif (falta.length) return fail(500, 'PENDENTE_CONFIGURACAO: variáveis ausentes no Harmonia: ' + falta.join(', '), 'PENDENTE_CONFIGURACAO');\nconst it = $input.first(); const descricao = it.json.descricao || '';\nconst parts = [];\nif (descricao) parts.push({ text: 'Descrição enviada pelo lojista: ' + descricao });\nif (it.binary && it.binary.imagem) {\n  const bin = it.binary.imagem;\n  if (!String(bin.mimeType || '').startsWith('image/')) return fail(400, 'O arquivo enviado não é uma imagem');\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'imagem');\n  if (buf.length > 15 * 1024 * 1024) return fail(413, 'Imagem acima de 15 MB');\n  parts.push({ inline_data: { mime_type: bin.mimeType, data: buf.toString('base64') } });\n}\nif (!parts.length) return fail(400, 'Envie texto e/ou imagem do produto');\nconst system = 'Você extrai dados de cadastro de UM produto a partir de texto e/ou imagem (foto, embalagem, nota fiscal). '\n + 'Responda APENAS com um objeto JSON: {\"item_name\": string|null, \"item_code\": string|null (SKU/código de barras/código impresso, só se aparecer), '\n + '\"standard_rate\": number|null (preço de venda, só se aparecer), \"description\": string|null, \"categoria\": string|null, \"ncm\": string|null (0000.00.00, só se houver base real), \"marca\": string|null}. '\n + 'NUNCA invente valor sem base no material enviado: dado ausente = null.';\nconst gemini = { system_instruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: { response_mime_type: 'application/json' } };\nreturn [{ json: { ok: true, gemini } }];\n"
-      }
-    },
-    {
-      "id": "1465b505-fbfd-55c0-8c32-f56e1c59086b",
-      "name": "Extração preparada?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1820,
-        600
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "438a64f1-7543-56d3-845b-5acc025b3198",
-              "leftValue": "={{ $json.ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "f2f4c39a-036b-5913-973d-8567c13bff17",
-      "name": "Gemini Flash — Extrai Produto",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2080,
-        600
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "key",
-              "value": "={{ $env.GEMINI_API_KEY }}"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.gemini) }}",
-        "options": {
-          "timeout": 45000
-        }
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "ed65de6a-0a95-5e13-bd76-0414d5f61acf",
-      "name": "Monta Item",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2340,
-        600
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nlet x = {};\ntry { x = JSON.parse($input.first().json.candidates?.[0]?.content?.parts?.[0]?.text || '{}'); } catch (e) { return fail(422, 'A Lyra não conseguiu interpretar o material enviado'); }\nconst nome = typeof x.item_name === 'string' ? x.item_name.trim() : '';\nif (!nome) return fail(422, 'A Lyra não identificou o nome do produto no material enviado');\nconst slug = (s) => String(s).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);\nconst codigoMaterial = typeof x.item_code === 'string' ? x.item_code.trim().replace(/[^A-Za-z0-9._-]/g, '') : '';\nconst item_code = codigoMaterial || slug(nome);\nif (!item_code) return fail(422, 'Não foi possível derivar um código para o produto');\nconst item = { item_code, item_name: nome.slice(0, 140), item_group: 'All Item Groups', stock_uom: 'Nos' };\nconst preco = Number(x.standard_rate); if (Number.isFinite(preco) && preco > 0) item.standard_rate = preco;\nif (typeof x.description === 'string' && x.description.trim()) item.description = x.description.trim();\nreturn [{ json: { ok: true, item, sugestoes: { categoria: x.categoria ?? null, ncm: x.ncm ?? null, marca: x.marca ?? null } } }];\n"
-      }
-    },
-    {
-      "id": "d57b54a4-4c73-54c4-94bb-5dab792a4821",
-      "name": "Item montado?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        2600,
-        600
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "14e3df43-b28b-54b1-aa6a-e28323015929",
-              "leftValue": "={{ $json.ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "186962ff-fdb9-523d-b815-9ecd16ed1081",
-      "name": "Ritmo — Item já existe?",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2860,
-        600
-      ],
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Item/{{ encodeURIComponent($json.item.item_code) }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 15000,
-          "response": {
-            "response": {
-              "neverError": true,
-              "fullResponse": true
-            }
-          }
-        }
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "d447601b-63da-5c74-aade-ccc42eea558c",
-      "name": "Decide criação",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3120,
-        600
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const fail = (status, m, codigo) => [{ json: { ok: false, status, body: { sucesso: false, erro: m, message: m, ...(codigo ? { codigo } : {}) } } }];\n\nconst r = $input.first().json; const m = $('Monta Item').first().json;\nif (r.statusCode === 404) return [{ json: { ok: true, item: m.item, sugestoes: m.sugestoes } }];\nif (r.statusCode === 200) return fail(409, 'Já existe um produto com o código ' + m.item.item_code + ' no Ritmo — nada foi criado', 'ITEM_JA_EXISTE');\nreturn fail(502, 'Falha ao consultar o Ritmo antes de criar o produto (HTTP ' + r.statusCode + ')');\n"
-      }
-    },
-    {
-      "id": "1417260a-a55b-531d-96a4-c85d8d9834fa",
-      "name": "Pode criar?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        3380,
-        600
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "0d4f3097-3724-5331-8157-84b0c0e13544",
-              "leftValue": "={{ $json.ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "5bd8989b-acdd-5a84-a6c3-430c1211364f",
-      "name": "Ritmo — Cria Item",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        3640,
-        600
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Item",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.item) }}",
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "5d8498a6-563c-55f7-b922-c1a530c232dd",
-      "name": "Ritmo — Verifica Item criado",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        3900,
-        600
-      ],
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Item/{{ encodeURIComponent($('Decide criação').first().json.item.item_code) }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 15000,
-          "response": {
-            "response": {
-              "neverError": true,
-              "fullResponse": true
-            }
-          }
-        }
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "3414e6b3-9df2-56b0-88c4-3b0b651fd5cf",
-      "name": "Confirma Item",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        4160,
-        600
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const r = $input.first().json; const d = $('Decide criação').first().json;\nconst doc = r.body && r.body.data;\nif (r.statusCode === 200 && doc && doc.item_code === d.item.item_code) {\n  return [{ json: { status: 200, body: { sucesso: true, item_code: doc.item_code, item_name: doc.item_name, resumo: 'Produto \"' + doc.item_name + '\" cadastrado no Ritmo (código ' + doc.item_code + ')', sugestoes: d.sugestoes } } }];\n}\nconst m = 'O Item não foi encontrado no Ritmo após a criação — cadastro NÃO confirmado';\nreturn [{ json: { status: 502, body: { sucesso: false, erro: m, message: m } } }];\n"
-      }
-    },
-    {
-      "id": "bdc77f8a-f3b5-5fd7-8a4c-4fee7b943270",
-      "name": "Formata erro",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        4420,
-        900
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha no cadastro do produto\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"lyra-cadastro\" } } }];\n"
-      }
-    },
-    {
-      "id": "a9be92de-053b-5927-8941-5416f6fc67f5",
-      "name": "Responde ao Painel",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        4680,
-        300
-      ],
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json.body }}",
-        "options": {
-          "responseCode": "={{ $json.status }}"
-        }
-      }
-    },
-    {
-      "id": "ad6846b2-2e73-5595-ac54-f1881e71b6c7",
-      "name": "Notas",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        4940,
-        -320
-      ],
-      "parameters": {
-        "content": "**Synapse — Lyra Interna — Gerar Atributos de Produto** (workflow existente, mesmo path)\nDois usos: (1) sem descricao/imagem = sugestão de atributos (comportamento anterior); (2) tipo=produtos + descricao e/ou imagem = CADASTRO: Gemini extrai → cria Item no ERPNext/Ritmo → verifica por GET → só então sucesso.\nNão sobrescreve Item existente (409). NCM/categoria vão como sugestão: o campo de NCM do Item no Ritmo não está confirmado.\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL",
-        "height": 260,
-        "width": 560
-      }
-    }
-  ],
-  "connections": {
-    "Webhook — Gerar Atributos": {
-      "main": [
-        [
-          {
-            "node": "Classifica Requisição",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Classifica Requisição": {
-      "main": [
-        [
-          {
-            "node": "É cadastro (texto/imagem)?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "É cadastro (texto/imagem)?": {
-      "main": [
-        [
-          {
-            "node": "Prepara Extração",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Monta Prompt de Geração",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Monta Prompt de Geração": {
-      "main": [
-        [
-          {
-            "node": "Gemini Flash — Gera Atributos",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gemini Flash — Gera Atributos": {
-      "main": [
-        [
-          {
-            "node": "Formata Resposta pro Painel",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Formata Resposta pro Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Formata Resposta pro Painel": {
-      "main": [
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepara Extração": {
-      "main": [
-        [
-          {
-            "node": "Extração preparada?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extração preparada?": {
-      "main": [
-        [
-          {
-            "node": "Gemini Flash — Extrai Produto",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gemini Flash — Extrai Produto": {
-      "main": [
-        [
-          {
-            "node": "Monta Item",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Formata erro",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Monta Item": {
-      "main": [
-        [
-          {
-            "node": "Item montado?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Item montado?": {
-      "main": [
-        [
-          {
-            "node": "Ritmo — Item já existe?",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ritmo — Item já existe?": {
-      "main": [
-        [
-          {
-            "node": "Decide criação",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Formata erro",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Decide criação": {
-      "main": [
-        [
-          {
-            "node": "Pode criar?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pode criar?": {
-      "main": [
-        [
-          {
-            "node": "Ritmo — Cria Item",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ritmo — Cria Item": {
-      "main": [
-        [
-          {
-            "node": "Ritmo — Verifica Item criado",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Formata erro",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ritmo — Verifica Item criado": {
-      "main": [
-        [
-          {
-            "node": "Confirma Item",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Formata erro",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Confirma Item": {
-      "main": [
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Formata erro": {
-      "main": [
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+ "name": "Synapse — Lyra Interna — Gerar Atributos de Produto",
+ "nodes": [
+  {
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "lyra/gerar-atributos",
+    "responseMode": "responseNode",
+    "options": {}
+   },
+   "id": "webhook-lyra-atributos",
+   "name": "Webhook — Gerar Atributos",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 1,
+   "position": [
+    240,
+    300
+   ]
   },
-  "settings": {
-    "executionOrder": "v1"
+  {
+   "parameters": {
+    "jsCode": "// Função genuinamente nova — geração/inferência não existe em nenhum\n// workflow atual (gerenciar_cadastro só grava o que já vem pronto).\nconst system_prompt = 'Você sugere atributos de catálogo pra um produto de '\n  + 'e-commerce brasileiro, a partir dos dados que o lojista já digitou. '\n  + 'Responda APENAS com um objeto JSON: {\"categoria\": string|null, \"ncm\": '\n  + 'string|null (formato 0000.00.00), \"preco\": string|null (formato \"R$ 00,00\"), '\n  + '\"justificativa\": string|null}. Para cada atributo, só preencha um valor se '\n  + 'os dados fornecidos derem base real pra isso. Se não houver informação '\n  + 'suficiente pra um atributo, retorne null nesse atributo — NUNCA invente ou '\n  + 'estime um valor sem base nos dados. Quando qualquer atributo vier null, '\n  + 'preencha \"justificativa\" com uma frase curta dizendo o que falta pra '\n  + 'estimar (ex.: \"sem categoria ou palavras-chave do produto, não é possível '\n  + 'sugerir NCM nem preço\"). Dado desconhecido é uma resposta válida.';\n\nconst user_prompt = JSON.stringify($json);\n\nreturn [{ json: { modelo: 'gemini-2.0-flash', system_prompt, user_prompt } }];\n"
+   },
+   "id": "monta-prompt-atributos",
+   "name": "Monta Prompt de Geração",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    460,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{$json.modelo}}:generateContent?key={{$env.GEMINI_API_KEY}}",
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={\n  \"system_instruction\": { \"parts\": [{ \"text\": \"{{$json.system_prompt}}\" }] },\n  \"contents\": [{ \"role\": \"user\", \"parts\": [{ \"text\": \"{{$json.user_prompt}}\" }] }],\n  \"generationConfig\": { \"response_mime_type\": \"application/json\" }\n}",
+    "options": {},
+    "method": "POST"
+   },
+   "id": "gemini-gera",
+   "name": "Gemini Flash — Gera Atributos",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4,
+   "position": [
+    680,
+    300
+   ],
+   "continueOnFail": true
+  },
+  {
+   "parameters": {
+    "jsCode": "const resp = $input.first().json;\nlet atributos = { categoria: null, ncm: null, preco: null, justificativa: null };\ntry {\n  const texto = resp.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  const parsed = JSON.parse(texto);\n  // Só aceita o que veio de fato — não troca null por '' nem inventa default.\n  atributos = {\n    categoria: parsed.categoria ?? null,\n    ncm: parsed.ncm ?? null,\n    preco: parsed.preco ?? null,\n    justificativa: parsed.justificativa ?? null\n  };\n} catch(e) {\n  atributos.justificativa = 'Não foi possível interpretar a resposta da Lyra agora';\n}\nreturn [{ json: atributos }];\n"
+   },
+   "id": "formata-resposta-atributos",
+   "name": "Formata Resposta pro Painel",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    900,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "respondWith": "json",
+    "responseBody": "={{$json}}",
+    "options": {}
+   },
+   "id": "responde-lyra-atributos",
+   "name": "Responde ao Painel",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1,
+   "position": [
+    1120,
+    300
+   ]
   }
+ ],
+ "connections": {
+  "Webhook — Gerar Atributos": {
+   "main": [
+    [
+     {
+      "node": "Monta Prompt de Geração",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Monta Prompt de Geração": {
+   "main": [
+    [
+     {
+      "node": "Gemini Flash — Gera Atributos",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Flash — Gera Atributos": {
+   "main": [
+    [
+     {
+      "node": "Formata Resposta pro Painel",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Formata Resposta pro Painel": {
+   "main": [
+    [
+     {
+      "node": "Responde ao Painel",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
 }
