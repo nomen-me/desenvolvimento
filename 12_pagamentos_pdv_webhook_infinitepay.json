@@ -29,7 +29,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst falta = ['ERPNEXT_DOMAIN', 'ERPNEXT_API_KEY', 'ERPNEXT_API_SECRET'].filter(k => !$env[k]);\nif (falta.length) return wfail(500, 'PENDENTE_CONFIGURACAO_RITMO: variáveis ausentes: ' + falta.join(', '));\nconst b = $input.first().json.body || {};\nconst order_nsu = String(b.order_nsu || '').trim();\nif (!/^[A-Za-z0-9._-]{1,100}$/.test(order_nsu)) return wfail(400, 'Pedido não encontrado');\nconst transaction_nsu = String(b.transaction_nsu || '').trim();\nconst slug = String(b.invoice_slug || b.slug || '').trim();\nif (!transaction_nsu || !slug) return wfail(400, 'Webhook sem transaction_nsu/invoice_slug');\nconst paid = b.paid_amount ?? b.amount ?? null;\nreturn [{ json: { ok: true, order_nsu, transaction_nsu, slug, valor_webhook: paid === null ? null : Number(paid) } }];\n"
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst falta = ['ERPNEXT_DOMAIN', 'ERPNEXT_API_KEY', 'ERPNEXT_API_SECRET'].filter(k => !$env[k]);\nif (falta.length) return wfail(500, 'PENDENTE_CONFIGURACAO_RITMO: variáveis ausentes: ' + falta.join(', '));\nconst b = $input.first().json.body || {};\nconst op_id = String(b.order_nsu || '').trim();                       // op_id = order_nsu = POS Invoice.synapse_op_id\nif (!/^[A-Za-z0-9._-]{1,100}$/.test(op_id)) return wfail(400, 'order_nsu (op_id) ausente ou inválido');\nconst transaction_nsu = String(b.transaction_nsu || '').trim();       // preservado À PARTE: nunca substitui o op_id\nconst slug = String(b.invoice_slug || b.slug || '').trim();\nif (!transaction_nsu || !slug) return wfail(400, 'Webhook sem transaction_nsu/invoice_slug');\nconst pago = b.paid_amount ?? b.amount ?? null;\nreturn [{ json: { ok: true, op_id, transaction_nsu, slug, valor_webhook: pago === null ? null : Number(pago), capture_method: b.capture_method || null, payload: JSON.stringify(b).slice(0, 4000) } }];\n"
       }
     },
     {
@@ -107,7 +107,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst c = $input.first().json.data || {};\nconst bad = (m) => wfail(400, m);\nif (c.status !== 'conectado') return bad('PENDENTE_CONFIGURACAO_INFINITEPAY: conta InfinitePay não está conectada (status: ' + (c.status || 'desconhecido') + ')');\nlet meta = {}; try { meta = JSON.parse(c.metadados || '{}'); } catch (e) {}\nconst handle = String(meta.handle || meta.infinite_tag || c.conta_conectada || '').trim().replace(/^[$@]/, '');\nif (!/^[A-Za-z0-9._-]{2,64}$/.test(handle)) return bad('PENDENTE_CONFIGURACAO_INFINITEPAY: InfiniteTag (handle) não identificada na credencial (metadados.handle ou conta_conectada)');\n\nconst e = $('Valida webhook').first().json;\nreturn [{ json: { ok: true, payload: { handle, order_nsu: e.order_nsu, transaction_nsu: e.transaction_nsu, slug: e.slug } } }];\n"
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst c = $input.first().json.data || {};\nconst bad = (m) => wfail(400, m);\nif (c.status !== 'conectado') return bad('PENDENTE_CONFIGURACAO_INFINITEPAY: conta InfinitePay não está conectada (status: ' + (c.status || 'desconhecido') + ')');\nlet meta = {}; try { meta = JSON.parse(c.metadados || '{}'); } catch (e) {}\nconst handle = String(meta.handle || meta.infinite_tag || c.conta_conectada || '').trim().replace(/^[$@]/, '');\nif (!/^[A-Za-z0-9._-]{2,64}$/.test(handle)) return bad('PENDENTE_CONFIGURACAO_INFINITEPAY: InfiniteTag (handle) não identificada na credencial (metadados.handle ou conta_conectada)');\n\nconst e = $('Valida webhook').first().json;\nreturn [{ json: { ok: true, payload: { handle, order_nsu: e.op_id, transaction_nsu: e.transaction_nsu, slug: e.slug } } }];\n"
       }
     },
     {
@@ -178,8 +178,8 @@
       "waitBetweenTries": 1000
     },
     {
-      "id": "023f81a2-4869-5631-8a30-c40b867bde09",
-      "name": "Reconcilia",
+      "id": "0d53dd83-84d4-5d2c-9642-45a5dfef725b",
+      "name": "Confirma pagamento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -188,7 +188,240 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst j = $input.first().json;\nconst e = $('Valida webhook').first().json;\nif (!(j.success === true && j.paid === true)) return wfail(400, 'Pagamento não confirmado pela InfinitePay');\nconst pago = j.paid_amount === undefined || j.paid_amount === null ? null : Number(j.paid_amount);\nif (e.valor_webhook !== null && pago !== null && Number.isFinite(e.valor_webhook) && Math.round(e.valor_webhook) !== Math.round(pago)) return wfail(400, 'Valor do webhook diverge do valor confirmado pela InfinitePay');\n// Confirmado pela própria InfinitePay. Este workflow não grava nada: reentregas repetem apenas a verificação (idempotente).\nreturn [{ json: { status: 200, body: { success: true, message: null } } }];\n"
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst j = $input.first().json; const e = $('Valida webhook').first().json;\nif (!(j.success === true && j.paid === true)) return wfail(400, 'Pagamento não confirmado pela InfinitePay');\nconst valorCent = (j.paid_amount === undefined || j.paid_amount === null) ? null : Math.round(Number(j.paid_amount));\nif (e.valor_webhook !== null && valorCent !== null && Number.isFinite(e.valor_webhook) && Math.round(e.valor_webhook) !== valorCent) return wfail(400, 'Valor do webhook diverge do valor confirmado pela InfinitePay');\nreturn [{ json: { ok: true, op_id: e.op_id, transaction_nsu: e.transaction_nsu, slug: e.slug, valorCent, capture_method: j.capture_method || e.capture_method, payload: e.payload } }];\n"
+      }
+    },
+    {
+      "id": "d2743ff0-3cb6-511c-834e-045b50dbf056",
+      "name": "Pago?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2080,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "91af9ea2-a6a4-5b58-8141-6a46f55dd47c",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "81d587e5-0202-5913-bbcf-fa4c2be78cd9",
+      "name": "Ritmo — Venda (POS Invoice)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2340,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/POS%20Invoice",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "=[\"name\",\"docstatus\",\"grand_total\",\"rounded_total\"]"
+            },
+            {
+              "name": "filters",
+              "value": "={{ JSON.stringify([[\"synapse_op_id\",\"=\",$json.op_id]]) }}"
+            },
+            {
+              "name": "limit_page_length",
+              "value": "2"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a4cfca44-1b94-5928-8105-e55ff32a5d20",
+      "name": "Ritmo — Evento existente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2600,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Synapse%20Evento%20Pagamento/{{ encodeURIComponent($('Confirma pagamento').first().json.op_id) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e7ee4b3a-2cac-5b71-ac92-7f842328e93c",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst p = $('Confirma pagamento').first().json;\nconst v = $('Ritmo — Venda (POS Invoice)').first().json; const ev = $input.first().json;\nif (v.statusCode !== 200) return wfail(400, 'Falha ao consultar a venda no Ritmo (HTTP ' + v.statusCode + ') — webhook NÃO reconhecido, a InfinitePay reenviará');\nif (ev.statusCode !== 200 && ev.statusCode !== 404) return wfail(400, 'Falha ao consultar o evento no Ritmo (HTTP ' + ev.statusCode + ') — webhook NÃO reconhecido, a InfinitePay reenviará');\nconst venda = ((v.body && v.body.data) || [])[0] || null;\nconst evento = ev.statusCode === 200 ? ev.body.data : null;\nconst total = venda ? Number(venda.rounded_total || venda.grand_total || 0) : null;\n// A venda corresponde se existe (não cancelada) e o valor confere com o confirmado pela InfinitePay (tolerância de 1 centavo)\nconst achou = !!venda && venda.docstatus !== 2;\nconst confere = achou && (p.valorCent === null || Math.abs(Math.round(total * 100) - p.valorCent) <= 1);\nconst agora = new Date().toISOString().slice(0, 19).replace('T', ' ');           // UTC, formato Datetime do Frappe\nconst url = (n) => $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') + '/api/resource/Synapse%20Evento%20Pagamento' + (n ? '/' + encodeURIComponent(n) : '');\nconst out = (status, http, req, extra) => [{ json: Object.assign({ ok: true, status, http, req }, extra || {}) }];\nif (!evento) {                                                                  // primeiro webhook deste op_id\n  const novo = { op_id: p.op_id, transaction_nsu: p.transaction_nsu, invoice_slug: p.slug, created_at: agora, valor: p.valorCent === null ? null : p.valorCent / 100, capture_method: p.capture_method, payload: p.payload };\n  if (confere) return out('RECONCILED', 200, { method: 'POST', url: url(), body: Object.assign(novo, { status: 'RECONCILED', pos_invoice: venda.name, reconciled_at: agora }) });\n  return out('PENDING_MATCH', 202, { method: 'POST', url: url(), body: Object.assign(novo, { status: 'PENDING_MATCH', observacao: achou ? 'Venda encontrada com valor divergente do pagamento' : null }) });\n}\nconst divergente = evento.transaction_nsu !== p.transaction_nsu;                // mesmo op_id, outro transaction_nsu: não sobrescreve\nconst obs = 'transaction_nsu divergente recebido: ' + p.transaction_nsu;\nconst marcaDiv = divergente && !String(evento.observacao || '').includes(obs) ? { method: 'PUT', url: url(evento.name), body: { observacao: obs } } : null;\nif (evento.status === 'RECONCILED' || evento.status === 'EXPIRED') return out(evento.status, 200, marcaDiv, { divergencia: divergente });   // idempotente: não reprocessa\nif (confere && !divergente) return out('RECONCILED', 200, { method: 'PUT', url: url(evento.name), body: { status: 'RECONCILED', pos_invoice: venda.name, reconciled_at: agora } });\nreturn out('PENDING_MATCH', 202, marcaDiv, { divergencia: divergente });\n"
+      }
+    },
+    {
+      "id": "745f48f0-575a-5d8e-9cce-759befc46fc3",
+      "name": "Precisa gravar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7d633d56-9ff1-5ac6-8a1e-644020c5fbeb",
+              "leftValue": "={{ $json.ok === true && $json.req !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "382118dd-7310-5681-8d84-25be9a01a92b",
+      "name": "Ritmo — Grava evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3380,
+        0
+      ],
+      "parameters": {
+        "method": "={{ $json.req.method }}",
+        "url": "={{ $json.req.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.req.body) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "758c1828-eb64-5f63-9c21-740c686c4bf2",
+      "name": "Resposta após gravar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3640,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const wfail = (status, m) => [{ json: { ok: false, status, body: { success: false, message: m } } }];\n\nconst d = $('Decide').first().json; const r = $input.first().json;\nconst duplicadoEmCorrida = d.req.method === 'POST' && r.statusCode === 409;      // outra entrega gravou antes: o evento já existe (idempotente)\nif (!(r.statusCode >= 200 && r.statusCode < 300) && !duplicadoEmCorrida) return wfail(400, 'Falha ao registrar o evento no Ritmo (HTTP ' + r.statusCode + ') — webhook NÃO reconhecido, a InfinitePay reenviará');\nreturn [{ json: { status: d.http, body: Object.assign({ success: true, message: null, status: d.status }, d.divergencia ? { divergencia: true } : {}) } }];\n"
+      }
+    },
+    {
+      "id": "74d65498-7767-5cda-a71a-ec777ae1abfd",
+      "name": "Resposta sem gravar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d = $input.first().json;\nif (d.ok === false) return [{ json: { status: d.status, body: d.body } }];   // falha de validação/consulta já formatada em \"Decide\"\nreturn [{ json: { status: d.http, body: Object.assign({ success: true, message: null, status: d.status }, d.divergencia ? { divergencia: true } : {}) } }];\n"
       }
     },
     {
@@ -197,12 +430,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
-        300
+        4160,
+        0
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const it = $input.first().json || {}; const e = it.error || it;\nconst up = Number(e.httpCode || e.statusCode || e.status || 0);\nreturn [{ json: { status: 400, body: { success: false, message: 'Falha ao confirmar o pagamento na InfinitePay' + (up ? ' (HTTP ' + up + ')' : '') } } }];\n"
+        "jsCode": "const it = $input.first().json || {}; const e = it.error || it; const up = Number(e.httpCode || e.statusCode || e.status || 0);\nreturn [{ json: { status: 400, body: { success: false, message: 'Falha ao confirmar o pagamento na InfinitePay' + (up ? ' (HTTP ' + up + ')' : '') } } }];\n"
       }
     },
     {
@@ -211,12 +444,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2340,
-        500
+        4420,
+        0
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const it = $input.first().json || {}; const e = it.error || it;\nconst up = Number(e.httpCode || e.statusCode || e.status || 0);\nreturn [{ json: { status: 400, body: { success: false, message: up === 404 ? 'PENDENTE_CONFIGURACAO_INFINITEPAY: credencial não encontrada' : 'Falha ao ler a credencial InfinitePay no Ritmo' } } }];\n"
+        "jsCode": "const it = $input.first().json || {}; const e = it.error || it; const up = Number(e.httpCode || e.statusCode || e.status || 0);\nreturn [{ json: { status: 400, body: { success: false, message: up === 404 ? 'PENDENTE_CONFIGURACAO_INFINITEPAY: credencial não encontrada' : 'Falha ao ler a credencial InfinitePay no Ritmo' } } }];\n"
       }
     },
     {
@@ -225,7 +458,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        2600,
+        4680,
         0
       ],
       "parameters": {
@@ -242,13 +475,13 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2860,
+        4940,
         -300
       ],
       "parameters": {
-        "content": "**Synapse — Pagamentos PDV — Webhook InfinitePay**\nStatus: ESTRUTURALMENTE_PRONTO_AGUARDANDO_TESTE_REAL\nContrato do Panel: sucesso → 200 {success:true,message:null}; erro → 400 {success:false,message} (a InfinitePay reenvia).\nNão confia no corpo do webhook: reconfere com payment_check (handle + order_nsu + transaction_nsu + invoice_slug) e compara o valor.\nNão grava nada: a venda ainda não existe no Ritmo neste momento (a POS Invoice nasce da fila do PDV depois). Reentrega 1x/2x/3x = mesma verificação, sem efeito colateral.\nLIMITE: se o navegador do PDV fechar após o pagamento, nenhum registro no Ritmo guarda o pagamento — ver decisão pendente no LEIA-ME.",
+        "content": "**Webhook InfinitePay — revisado (webhook ANTES da POS Invoice)**\nop_id = order_nsu = POS Invoice.synapse_op_id; transaction_nsu preservado à parte.\nReconfere o pagamento na InfinitePay (payment_check). Venda existe e confere → evento RECONCILED (200). Venda ainda NÃO existe → evento PENDING_MATCH (202), SEM erro por ausência da venda. Reentrega: evento único por op_id (naming = op_id) → nenhuma duplicidade.\nSó responde 200/202 depois de gravar o evento; se o Ritmo falhar → 400 (a InfinitePay reenvia).\nEstados: PENDING_MATCH · RECONCILED · EXPIRED (a expiração em 24h é do workflow 13). Persistência: DocType 'Synapse Evento Pagamento' (sem Link/FK).",
         "height": 320,
-        "width": 520
+        "width": 620
       }
     }
   ],
@@ -344,7 +577,7 @@
       "main": [
         [
           {
-            "node": "Reconcilia",
+            "node": "Confirma pagamento",
             "type": "main",
             "index": 0
           }
@@ -358,7 +591,130 @@
         ]
       ]
     },
-    "Reconcilia": {
+    "Confirma pagamento": {
+      "main": [
+        [
+          {
+            "node": "Pago?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pago?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Venda (POS Invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Venda (POS Invoice)": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Evento existente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Evento existente": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Precisa gravar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Precisa gravar?": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Grava evento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resposta sem gravar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Grava evento": {
+      "main": [
+        [
+          {
+            "node": "Resposta após gravar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formata erro Ritmo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta após gravar": {
+      "main": [
+        [
+          {
+            "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta sem gravar": {
       "main": [
         [
           {

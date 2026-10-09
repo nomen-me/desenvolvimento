@@ -1,0 +1,121 @@
+{
+  "doctype": "DocType",
+  "name": "Synapse Evento Pagamento",
+  "module": "Synapse",
+  "custom": 1,
+  "istable": 0,
+  "issingle": 0,
+  "track_changes": 1,
+  "autoname": "field:op_id",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "fields": [
+    {
+      "fieldname": "op_id",
+      "fieldtype": "Data",
+      "label": "op_id (= order_nsu = POS Invoice.synapse_op_id)",
+      "unique": 1,
+      "reqd": 1,
+      "description": "Chave de correlação. Um único evento por op_id (idempotência). NÃO é Link: o evento nasce antes da POS Invoice."
+    },
+    {
+      "fieldname": "transaction_nsu",
+      "fieldtype": "Data",
+      "label": "transaction_nsu (InfinitePay)",
+      "reqd": 1,
+      "description": "Preservado à parte; nunca substitui o op_id."
+    },
+    {
+      "fieldname": "invoice_slug",
+      "fieldtype": "Data",
+      "label": "invoice_slug (InfinitePay)"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "reqd": 1,
+      "default": "PENDING_MATCH",
+      "options": "PENDING_MATCH\nRECONCILED\nEXPIRED"
+    },
+    {
+      "fieldname": "created_at",
+      "fieldtype": "Datetime",
+      "label": "Recebido em (UTC)",
+      "reqd": 1,
+      "description": "Base do SLA de 24 h."
+    },
+    {
+      "fieldname": "valor",
+      "fieldtype": "Currency",
+      "label": "Valor confirmado"
+    },
+    {
+      "fieldname": "capture_method",
+      "fieldtype": "Data",
+      "label": "Método de captura"
+    },
+    {
+      "fieldname": "pos_invoice",
+      "fieldtype": "Data",
+      "label": "POS Invoice associada",
+      "description": "Texto simples (sem Link/FK): preenchido na reconciliação."
+    },
+    {
+      "fieldname": "reconciled_at",
+      "fieldtype": "Datetime",
+      "label": "Reconciliado em (UTC)"
+    },
+    {
+      "fieldname": "expired_at",
+      "fieldtype": "Datetime",
+      "label": "Expirado em (UTC)"
+    },
+    {
+      "fieldname": "alerta_enviado",
+      "fieldtype": "Check",
+      "label": "Alerta de exceção enviado",
+      "default": "0"
+    },
+    {
+      "fieldname": "observacao",
+      "fieldtype": "Small Text",
+      "label": "Observação"
+    },
+    {
+      "fieldname": "payload",
+      "fieldtype": "Long Text",
+      "label": "Webhook recebido (auditoria)"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 0
+    },
+    {
+      "role": "Synapse Automação",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 0,
+      "if_owner": 0,
+      "print": 0,
+      "email": 0,
+      "export": 0,
+      "report": 0
+    },
+    {
+      "role": "Synapse Administrador",
+      "read": 1,
+      "write": 0,
+      "create": 0,
+      "delete": 0,
+      "report": 1,
+      "export": 1
+    }
+  ]
+}

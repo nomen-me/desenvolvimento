@@ -1,0 +1,149 @@
+{
+  "backend": "SIMULADO em memória (Ritmo/InfinitePay/Harpa fabricados; grafo executado por executor mínimo) — NÃO é evidência do ambiente real",
+  "resultados": [
+    {
+      "teste": "IP-1",
+      "descricao": "POS Invoice → webhook → RECONCILED (HTTP 200)",
+      "resultado": "PASS",
+      "detalhe": "{\"success\":true,\"message\":null,\"status\":\"RECONCILED\"}"
+    },
+    {
+      "teste": "IP-1b",
+      "descricao": "Uma venda, um evento, um transaction_nsu; POS Invoice associada; nada criado/alterado na venda",
+      "resultado": "PASS",
+      "detalhe": "{\"pos\":1,\"eventos\":1,\"tx\":\"T1\"}"
+    },
+    {
+      "teste": "IP-2a",
+      "descricao": "Webhook SEM POS Invoice: HTTP 202, success:true, sem erro por ausência da venda",
+      "resultado": "PASS",
+      "detalhe": "{\"success\":true,\"message\":null,\"status\":\"PENDING_MATCH\"}"
+    },
+    {
+      "teste": "IP-2b",
+      "descricao": "Evento gravado como PENDING_MATCH com op_id, transaction_nsu, created_at e dados de reconciliação (sem FK)",
+      "resultado": "PASS",
+      "detalhe": "{\"name\":\"op-2\",\"alerta_enviado\":0,\"observacao\":null,\"op_id\":\"op-2\",\"transaction_nsu\":\"T2\",\"invoice_slug\":\"slug-T2\",\"created_at\":\"2026-10-09 00:43:05\",\"valor\":59.9,\"capture_method\":\"pix\",\"payload\":\"…\",\"status\":\"PENDING_MATCH\"}"
+    },
+    {
+      "teste": "IP-2c",
+      "descricao": "POS Invoice criada → reconciliação → RECONCILED, associada à venda",
+      "resultado": "PASS",
+      "detalhe": "{\"verificados\":1,\"reconciliados\":1,\"expirados\":0,\"alertas_enviados\":0,\"erros\":[]}"
+    },
+    {
+      "teste": "IP-2d",
+      "descricao": "Uma venda e um evento: nenhuma duplicidade criada",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-3a",
+      "descricao": "Mesmo webhook 3x (sem venda): sempre 202, UM único evento PENDING_MATCH",
+      "resultado": "PASS",
+      "detalhe": "escritas no Ritmo=1"
+    },
+    {
+      "teste": "IP-3b",
+      "descricao": "Reentrega e reconciliação repetidas DEPOIS de RECONCILED: 200, nenhuma escrita nova, uma venda, um evento",
+      "resultado": "PASS",
+      "detalhe": "escritas antes/depois=2/2"
+    },
+    {
+      "teste": "IP-3c",
+      "descricao": "Corrida entre duas entregas (POST devolve 409 duplicado): reconhecido como sucesso, sem erro",
+      "resultado": "PASS",
+      "detalhe": "{\"status\":202,\"body\":{\"success\":true,\"message\":null,\"status\":\"PENDING_MATCH\"}}"
+    },
+    {
+      "teste": "IP-3d",
+      "descricao": "Mesmo op_id com OUTRO transaction_nsu: não sobrescreve nem duplica; registra a divergência",
+      "resultado": "PASS",
+      "detalhe": "transaction_nsu divergente recebido: OUTRO-TX"
+    },
+    {
+      "teste": "IP-4a",
+      "descricao": "Com 23h59: continua PENDING_MATCH, sem alerta",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-4b",
+      "descricao": "Com 24h: EXPIRED, evento NÃO apagado, expired_at preenchido",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-4c",
+      "descricao": "Alerta pelo Harpa com a mensagem operacional exata (1 alerta, alerta_enviado=1)",
+      "resultado": "PASS",
+      "detalhe": "\"Pagamento recebido sem venda correspondente após 24h.\\nop_id: op-4\\ntransaction_nsu: T4\\nstatus: EXPIRED\""
+    },
+    {
+      "teste": "IP-4d",
+      "descricao": "Reexecuções não repetem o alerta nem alteram o evento EXPIRED",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-4e",
+      "descricao": "EXPIRED não é mais reconciliado automaticamente, mesmo que a venda apareça depois",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-4f",
+      "descricao": "Webhook reentregue para EXPIRED: 200, evento inalterado (auditoria preservada)",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-5a",
+      "descricao": "Ritmo falha ao gravar o evento: webhook NÃO é reconhecido (400) — a InfinitePay reenvia; nada fica marcado como processado",
+      "resultado": "PASS",
+      "detalhe": "{\"success\":false,\"message\":\"Falha ao registrar o evento no Ritmo (HTTP 500) — webhook NÃO reconhecido, a InfinitePay reenviará\"}"
+    },
+    {
+      "teste": "IP-5b",
+      "descricao": "Pagamento NÃO confirmado pela InfinitePay: 400 e nenhum evento criado",
+      "resultado": "PASS",
+      "detalhe": "{\"success\":false,\"message\":\"Pagamento não confirmado pela InfinitePay\"}"
+    },
+    {
+      "teste": "IP-5c",
+      "descricao": "Venda existe mas com valor divergente: não reconcilia — PENDING_MATCH (202) com observação",
+      "resultado": "PASS",
+      "detalhe": "Venda encontrada com valor divergente do pagamento"
+    },
+    {
+      "teste": "IP-5d",
+      "descricao": "Venda cancelada (docstatus 2) não conta como correspondência: PENDING_MATCH",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-5e",
+      "descricao": "Alerta sem CHATWOOT_ALERTA_TELEFONE: evento fica EXPIRED com alerta_enviado=0 e a execução FALHA de forma visível",
+      "resultado": "PASS",
+      "detalhe": "Reconciliador concluiu com pendências: {\"verificados\":1,\"reconciliados\":0,\"expirados\":1,\"alertas_enviados\":0,\"erros\":[{\""
+    },
+    {
+      "teste": "IP-5f",
+      "descricao": "Configurado o alerta, a reconciliação seguinte envia 1 alerta e marca alerta_enviado=1",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-5g",
+      "descricao": "Ritmo indisponível: webhook responde 400 (não reconhece); nunca 200/202 sem persistir",
+      "resultado": "PASS",
+      "detalhe": ""
+    },
+    {
+      "teste": "IP-5h",
+      "descricao": "Nenhuma operação de DELETE foi executada em todo o roteiro",
+      "resultado": "PASS",
+      "detalhe": ""
+    }
+  ]
+}

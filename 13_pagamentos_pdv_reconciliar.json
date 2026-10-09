@@ -1,0 +1,98 @@
+{
+  "name": "Synapse — Pagamentos PDV — Reconciliar Eventos Pendentes",
+  "nodes": [
+    {
+      "id": "d4ee762a-aa82-54e4-b90c-5640b76fa369",
+      "name": "Agendamento (5 min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fd944c9c-5fb6-559d-9547-ba5c48d5ef8e",
+      "name": "Webhook (Ritmo: POS Invoice criada)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pagamentos/pdv/reconciliar",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "c20efcc6-56b4-5bc5-9e85-bf809840f7b0"
+    },
+    {
+      "id": "d137bee2-65dd-5c7e-ac12-c4e67d2470f0",
+      "name": "Reconcilia / Expira / Alerta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const falta = ['ERPNEXT_DOMAIN', 'ERPNEXT_API_KEY', 'ERPNEXT_API_SECRET'].filter(k => !$env[k]);\nif (falta.length) throw new Error('PENDENTE_CONFIGURACAO_RITMO: variáveis ausentes: ' + falta.join(', '));\nconst base = $env.ERPNEXT_DOMAIN.replace(/\\/+$/, ''); const headers = { Authorization: 'token ' + $env.ERPNEXT_API_KEY + ':' + $env.ERPNEXT_API_SECRET };\nconst RT = (method, path, qs, body) => this.helpers.httpRequest({ method, url: base + path, headers, qs, body, json: true, returnFullResponse: true, ignoreHttpStatusErrors: true });\nconst EVT = '/api/resource/Synapse%20Evento%20Pagamento';\nconst SLA_MS = 24 * 3600 * 1000;\nconst agoraMs = Date.now(); const agora = new Date(agoraMs).toISOString().slice(0, 19).replace('T', ' ');\nconst parseUtc = (s) => new Date(String(s).replace(' ', 'T') + 'Z').getTime();\nconst inb = $input.first() ? ($input.first().json || {}) : {}; const body = inb.body || {};\nconst soOp = String(body.op_id || (body.doc && body.doc.synapse_op_id) || '').trim() || null;    // gatilho imediato (Webhook do Ritmo na criação da POS Invoice)\nconst sum = { verificados: 0, reconciliados: 0, expirados: 0, alertas_enviados: 0, erros: [] };\n// 1) eventos que ainda exigem ação: PENDING_MATCH, ou EXPIRED com alerta pendente. RECONCILED nunca é tocado.\nconst filtros = [['alerta_enviado', '=', 0], ['status', 'in', ['PENDING_MATCH', 'EXPIRED']]]; if (soOp) filtros.push(['op_id', '=', soOp]);\nconst eventos = []; let ini = 0;\nfor (;;) {\n  const r = await RT('GET', EVT, { fields: JSON.stringify(['name', 'op_id', 'transaction_nsu', 'status', 'created_at', 'valor', 'alerta_enviado']), filters: JSON.stringify(filtros), order_by: 'name asc', limit_start: ini, limit_page_length: 200 });\n  if (r.statusCode !== 200) throw new Error('Falha ao listar eventos no Ritmo (HTTP ' + r.statusCode + ')');\n  const lote = (r.body && r.body.data) || []; if (!lote.length) break; eventos.push(...lote); ini += lote.length;\n}\nconst alertar = async (ev) => {\n  const need = ['CHATWOOT_DOMAIN', 'CHATWOOT_API_TOKEN', 'CHATWOOT_ACCOUNT_ID', 'CHATWOOT_WHATSAPP_INBOX_ID', 'CHATWOOT_ALERTA_TELEFONE'].filter(k => !$env[k]);\n  if (need.length) throw new Error('PENDENTE_CONFIGURACAO_ALERTA: variáveis ausentes: ' + need.join(', '));\n  const cw = $env.CHATWOOT_DOMAIN.replace(/\\/+$/, '') + '/api/v1/accounts/' + $env.CHATWOOT_ACCOUNT_ID; const h = { api_access_token: $env.CHATWOOT_API_TOKEN };\n  const phone = String($env.CHATWOOT_ALERTA_TELEFONE).replace(/[^\\d+]/g, '');\n  const msg = 'Pagamento recebido sem venda correspondente após 24h.\\nop_id: ' + ev.op_id + '\\ntransaction_nsu: ' + ev.transaction_nsu + '\\nstatus: EXPIRED';\n  let c = await this.helpers.httpRequest({ method: 'GET', url: cw + '/contacts/search', headers: h, qs: { q: phone }, json: true, returnFullResponse: true, ignoreHttpStatusErrors: true });\n  let contato = c.statusCode === 200 && c.body && c.body.payload && c.body.payload[0];\n  if (!contato) { c = await this.helpers.httpRequest({ method: 'POST', url: cw + '/contacts', headers: h, body: { inbox_id: Number($env.CHATWOOT_WHATSAPP_INBOX_ID), name: 'Alertas Synapse', phone_number: phone }, json: true, returnFullResponse: true, ignoreHttpStatusErrors: true }); contato = c.statusCode < 300 && c.body && ((c.body.payload && c.body.payload.contact) || c.body); }\n  if (!contato || !contato.id) throw new Error('Alerta: não foi possível localizar/criar o contato no Harpa (HTTP ' + c.statusCode + ')');\n  const ci = (contato.contact_inboxes || []).find(x => x.inbox && String(x.inbox.id) === String($env.CHATWOOT_WHATSAPP_INBOX_ID)); const source_id = ci ? ci.source_id : undefined;\n  const cv = await this.helpers.httpRequest({ method: 'POST', url: cw + '/conversations', headers: h, body: { inbox_id: Number($env.CHATWOOT_WHATSAPP_INBOX_ID), contact_id: contato.id, source_id, message: { content: msg } }, json: true, returnFullResponse: true, ignoreHttpStatusErrors: true });\n  if (cv.statusCode >= 300) throw new Error('Alerta: o Harpa recusou a mensagem (HTTP ' + cv.statusCode + ')');\n};\nfor (const ev of eventos) {\n  sum.verificados++;\n  try {\n    let status = ev.status;\n    if (status === 'PENDING_MATCH') {\n      const v = await RT('GET', '/api/resource/POS%20Invoice', { fields: JSON.stringify(['name', 'docstatus', 'grand_total', 'rounded_total']), filters: JSON.stringify([['synapse_op_id', '=', ev.op_id]]), limit_page_length: 2 });\n      if (v.statusCode !== 200) throw new Error('consulta da venda falhou (HTTP ' + v.statusCode + ')');\n      const venda = ((v.body && v.body.data) || [])[0];\n      const total = venda ? Number(venda.rounded_total || venda.grand_total || 0) : null;\n      const confere = !!venda && venda.docstatus !== 2 && (ev.valor === null || ev.valor === undefined || Math.abs(Math.round(total * 100) - Math.round(Number(ev.valor) * 100)) <= 1);\n      if (confere) {                                                           // PENDING_MATCH → RECONCILED (idempotente: a venda/pagamento já existem; nada é criado)\n        const u = await RT('PUT', EVT + '/' + encodeURIComponent(ev.name), null, { status: 'RECONCILED', pos_invoice: venda.name, reconciled_at: agora });\n        if (u.statusCode >= 300) throw new Error('falha ao marcar RECONCILED (HTTP ' + u.statusCode + ')');\n        sum.reconciliados++; continue;\n      }\n      if (agoraMs - parseUtc(ev.created_at) >= SLA_MS) {                       // PENDING_MATCH → EXPIRED (24h a partir de created_at); o evento NUNCA é apagado\n        const u = await RT('PUT', EVT + '/' + encodeURIComponent(ev.name), null, { status: 'EXPIRED', expired_at: agora, observacao: 'Pagamento recebido sem venda correspondente após 24h.' });\n        if (u.statusCode >= 300) throw new Error('falha ao marcar EXPIRED (HTTP ' + u.statusCode + ')');\n        sum.expirados++; status = 'EXPIRED';\n      }\n    }\n    if (status === 'EXPIRED') {                                                // alerta de exceção (Harpa); só marca alerta_enviado se o envio deu certo\n      await alertar(ev);\n      const u = await RT('PUT', EVT + '/' + encodeURIComponent(ev.name), null, { alerta_enviado: 1 });\n      if (u.statusCode >= 300) throw new Error('alerta enviado, mas falhou ao marcar alerta_enviado (HTTP ' + u.statusCode + ')');\n      sum.alertas_enviados++;\n    }\n  } catch (e) { sum.erros.push({ op_id: ev.op_id, erro: String(e.message || e).slice(0, 200) }); }\n}\n// falha VISÍVEL (execução em erro no n8n) se algo ficou pendente — nunca silencioso\nif (sum.erros.length) throw new Error('Reconciliador concluiu com pendências: ' + JSON.stringify(sum));\nreturn [{ json: sum }];\n"
+      }
+    },
+    {
+      "id": "998f05bc-cc71-5c14-b848-c5a8e1f38ff5",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        780,
+        -380
+      ],
+      "parameters": {
+        "content": "**Reconciliar Eventos Pendentes (novo, complementar ao WF-12)**\nPENDING_MATCH → RECONCILED quando a POS Invoice com synapse_op_id = op_id aparece e o valor confere. PENDING_MATCH → EXPIRED após 24h do created_at, sem apagar o evento; EXPIRED gera alerta pelo Harpa e fica para auditoria; EXPIRED nunca volta a ser reconciliado. Idempotente: não cria venda/pagamento/baixa — só atualiza o evento.\nGatilhos: agendamento (5 min) + POST /webhook/pagamentos/pdv/reconciliar (opcional: Webhook nativo do Ritmo em POS Invoice after_insert → reconciliação imediata).\nAlerta exige CHATWOOT_ALERTA_TELEFONE (config); se faltar, o evento fica EXPIRED com alerta_enviado=0 e a execução FALHA de forma visível.",
+        "height": 300,
+        "width": 620
+      }
+    }
+  ],
+  "connections": {
+    "Agendamento (5 min)": {
+      "main": [
+        [
+          {
+            "node": "Reconcilia / Expira / Alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Ritmo: POS Invoice criada)": {
+      "main": [
+        [
+          {
+            "node": "Reconcilia / Expira / Alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
