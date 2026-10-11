@@ -369,7 +369,7 @@
   },
   {
    "parameters": {
-    "url": "https://melhorenvio.com.br/api/v2/me/orders/tracking",
+    "url": "https://melhorenvio.com.br/api/v2/me/shipment/tracking",
     "sendHeaders": true,
     "headerParameters": {
      "parameters": [

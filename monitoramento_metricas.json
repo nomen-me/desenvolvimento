@@ -19,7 +19,7 @@
   },
   {
    "parameters": {
-    "url": "=http://netdata:19999/api/v1/data",
+    "url": "=http://acorde:19999/api/v1/data",
     "sendQuery": true,
     "queryParameters": {
      "parameters": [

@@ -57,7 +57,7 @@
   },
   {
    "parameters": {
-    "jsCode": "const meta = $node['Mapeia tipo → Doctype'].json;\nconst registro = $input.first().json.data || {};\n\nconst system_prompt = 'Você é a Lyra, assistente do lojista dentro do painel Synapse. '\n  + 'Responda a pergunta usando SOMENTE os dados fornecidos abaixo. Se a resposta '\n  + 'não estiver nos dados, diga que não tem essa informação. Seja direto, uma ou '\n  + 'duas frases, sem repetir a pergunta.\\\\n\\\\nDados do registro:\\\\n' + JSON.stringify(registro);\n\nreturn [{ json: { modelo: 'gemini-2.0-flash', system_prompt, user_prompt: meta.pergunta } }];\n"
+    "jsCode": "const meta = $node['Mapeia tipo → Doctype'].json;\nconst registro = $input.first().json.data || {};\n\nconst system_prompt = 'Você é a Lyra, assistente do lojista dentro do painel Synapse. '\n  + 'Responda a pergunta usando SOMENTE os dados fornecidos abaixo. Se a resposta '\n  + 'não estiver nos dados, diga que não tem essa informação. Seja direto, uma ou '\n  + 'duas frases, sem repetir a pergunta.\\\\n\\\\nDados do registro:\\\\n' + JSON.stringify(registro);\n\nreturn [{ json: { modelo: 'gemini-3.8-flash', system_prompt, user_prompt: meta.pergunta } }];\n"
    },
    "id": "monta-prompt-consultar",
    "name": "Monta Prompt de Resposta",
