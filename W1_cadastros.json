@@ -47,7 +47,7 @@
   },
   {
    "parameters": {
-    "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/contacts/search?q={{$json.telefone}}&include_contacts=true",
+    "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/contacts/search?q={{$json.telefone}}",
     "sendHeaders": true,
     "headerParameters": {
      "parameters": [
@@ -66,7 +66,8 @@
    "position": [
     680,
     300
-   ]
+   ],
+   "notes": "Parâmetro include_contacts=true removido da query string. Conferido contra a especificação pública da Chatwoot (GET /api/v1/accounts/{account_id}/contacts/search, developers.chatwoot.com/api-reference/contacts/search-contacts.md): os únicos parâmetros documentados são q, sort e page — include_contacts não existe nessa rota nem em nenhuma outra rota de contacts encontrada na documentação oficial. Não é um parâmetro inválido que quebra a chamada (parâmetro de query desconhecido tende a ser ignorado silenciosamente pelo backend Rails do Chatwoot), mas também não tem efeito nenhum — mantê-lo passa a falsa impressão de que está controlando algo. Removido por não ter contrato confirmado, conforme instrução de não manter comportamento não documentado sem confirmação."
   },
   {
    "parameters": {
@@ -91,7 +92,7 @@
   },
   {
    "parameters": {
-    "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/contacts/search?q={{$node['Extrai e Formata Dados do Cliente'].json.email}}&include_contacts=true",
+    "url": "=https://{{$env.CHATWOOT_DOMAIN}}/api/v1/accounts/{{$env.CHATWOOT_ACCOUNT_ID}}/contacts/search?q={{$node['Extrai e Formata Dados do Cliente'].json.email}}",
     "sendHeaders": true,
     "headerParameters": {
      "parameters": [
@@ -110,7 +111,8 @@
    "position": [
     1120,
     200
-   ]
+   ],
+   "notes": "Parâmetro include_contacts=true removido da query string. Conferido contra a especificação pública da Chatwoot (GET /api/v1/accounts/{account_id}/contacts/search, developers.chatwoot.com/api-reference/contacts/search-contacts.md): os únicos parâmetros documentados são q, sort e page — include_contacts não existe nessa rota nem em nenhuma outra rota de contacts encontrada na documentação oficial. Não é um parâmetro inválido que quebra a chamada (parâmetro de query desconhecido tende a ser ignorado silenciosamente pelo backend Rails do Chatwoot), mas também não tem efeito nenhum — mantê-lo passa a falsa impressão de que está controlando algo. Removido por não ter contrato confirmado, conforme instrução de não manter comportamento não documentado sem confirmação."
   },
   {
    "parameters": {

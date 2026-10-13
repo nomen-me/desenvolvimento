@@ -57,7 +57,7 @@
   },
   {
    "parameters": {
-    "jsCode": "const meta = $node['Mapeia tipo → Doctype'].json;\nconst registro = $input.first().json.data || {};\n\nconst system_prompt = 'Você é a Lyra, assistente do lojista dentro do painel Synapse. '\n  + 'Responda a pergunta usando SOMENTE os dados fornecidos abaixo. Se a resposta '\n  + 'não estiver nos dados, diga que não tem essa informação. Seja direto, uma ou '\n  + 'duas frases, sem repetir a pergunta.\\\\n\\\\nDados do registro:\\\\n' + JSON.stringify(registro);\n\nreturn [{ json: { modelo: 'gemini-3.8-flash', system_prompt, user_prompt: meta.pergunta } }];\n"
+    "jsCode": "const meta = $node['Mapeia tipo → Doctype'].json;\nconst registro = $input.first().json.data || {};\n\nconst system_prompt = 'Você é a Lyra, assistente do lojista dentro do painel Synapse. '\n  + 'Responda a pergunta usando SOMENTE os dados fornecidos abaixo. Se a resposta '\n  + 'não estiver nos dados, diga que não tem essa informação. Seja direto, uma ou '\n  + 'duas frases, sem repetir a pergunta.\\n\\nDados do registro:\\n' + JSON.stringify(registro);\n\n// Migrado para a Lyra Central (/v1/chat) — não chama mais o Gemini direto nem\n// depende de GEMINI_API_KEY. conversation_id exigido pelo contrato; chamada\n// avulsa, usa o id de execução do n8n só pra rastreabilidade.\nconst conversation_id = 'lyra-consultar-' + $execution.id;\n\nreturn [{ json: { conversation_id, system_prompt, user_prompt: meta.pergunta } }];\n"
    },
    "id": "monta-prompt-consultar",
    "name": "Monta Prompt de Resposta",
@@ -70,42 +70,71 @@
   },
   {
    "parameters": {
-    "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{$json.modelo}}:generateContent?key={{$env.GEMINI_API_KEY}}",
+    "url": "={{$env.LYRA_CENTRAL_URL}}/v1/chat",
     "sendHeaders": true,
     "headerParameters": {
      "parameters": [
       {
        "name": "Content-Type",
        "value": "application/json"
+      },
+      {
+       "name": "Authorization",
+       "value": "=Bearer {{$env.LYRA_API_KEY}}"
+      },
+      {
+       "name": "X-Tenant-ID",
+       "value": "={{$env.LYRA_TENANT_ID}}"
       }
      ]
     },
     "sendBody": true,
     "specifyBody": "json",
-    "jsonBody": "={\n  \"system_instruction\": { \"parts\": [{ \"text\": \"{{$json.system_prompt}}\" }] },\n  \"contents\": [{ \"role\": \"user\", \"parts\": [{ \"text\": \"{{$json.user_prompt}}\" }] }]\n}",
-    "options": {},
+    "jsonBody": "={{JSON.stringify({ tenant_id: $env.LYRA_TENANT_ID, conversation_id: $json.conversation_id, messages: [{ role: 'user', content: $json.system_prompt + '\\n\\n' + $json.user_prompt }], context: {}, tools_available: [] })}}",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "text"
+      }
+     }
+    },
     "method": "POST"
    },
-   "id": "gemini-responde",
-   "name": "Gemini Flash — Responde",
+   "id": "lyra-central-responde",
+   "name": "Lyra Central — Responde",
    "type": "n8n-nodes-base.httpRequest",
    "typeVersion": 4,
    "position": [
     1120,
     300
    ],
-   "continueOnFail": true
+   "continueOnFail": true,
+   "notes": "Substitui a chamada direta ao Gemini (generativelanguage.googleapis.com). Usa o mesmo contrato /v1/chat já confirmado em Lyra_L1_triagem.json (mesmos headers, mesmo formato de body, mesma resposta SSE text/event-stream). Não cria endpoint novo nem serviço paralelo: reaproveita a centralização existente na Lyra Central. tools_available vazio porque esta chamada é geração/interpretação avulsa, não aciona function-calling."
   },
   {
    "parameters": {
-    "jsCode": "const resp = $input.first().json;\nconst resposta = resp.candidates?.[0]?.content?.parts?.[0]?.text\n  || 'Não consegui gerar uma resposta agora.';\nreturn [{ json: { resposta } }];\n"
+    "jsCode": "function parseSSE(texto) {\n  const blocos = texto.split(/\\r?\\n\\r?\\n/).filter(Boolean);\n  let tokens = '';\n  let functionCall = null;\n  let finishReason = null;\n  for (const bloco of blocos) {\n    const linhas = bloco.split(/\\r?\\n/);\n    let evento = null;\n    let dadosTexto = '';\n    for (const linha of linhas) {\n      if (linha.startsWith('event:')) evento = linha.slice(6).trim();\n      if (linha.startsWith('data:')) dadosTexto += linha.slice(5).trim();\n    }\n    if (!evento || !dadosTexto) continue;\n    let dados;\n    try { dados = JSON.parse(dadosTexto); } catch (e) { continue; }\n    if (evento === 'token') tokens += (dados.text || '');\n    if (evento === 'function_call') functionCall = dados;\n    if (evento === 'done') finishReason = dados.finish_reason;\n  }\n  return { tokens, functionCall, finishReason };\n}\n\nconst bruto = $input.first().json.data ?? $input.first().json.body ?? $input.first().json;\nconst texto = typeof bruto === 'string' ? bruto : JSON.stringify(bruto);\nconst { tokens } = parseSSE(texto);\n\nreturn [{ json: { texto_resposta: tokens } }];"
+   },
+   "id": "parse-sse-consultar",
+   "name": "Parseia Eventos SSE",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1340,
+    300
+   ],
+   "notes": "Parser SSE idêntico ao usado em Lyra_L1_triagem.json (contrato oficial /v1/chat: resposta text/event-stream)."
+  },
+  {
+   "parameters": {
+    "jsCode": "const resposta = $input.first().json.texto_resposta || 'Não consegui gerar uma resposta agora.';\nreturn [{ json: { resposta } }];\n"
    },
    "id": "formata-resposta-consultar",
    "name": "Formata Resposta pro Painel",
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    1340,
+    1560,
     300
    ]
   },
@@ -120,7 +149,7 @@
    "type": "n8n-nodes-base.respondToWebhook",
    "typeVersion": 1,
    "position": [
-    1560,
+    1780,
     300
    ]
   }
@@ -163,14 +192,25 @@
    "main": [
     [
      {
-      "node": "Gemini Flash — Responde",
+      "node": "Lyra Central — Responde",
       "type": "main",
       "index": 0
      }
     ]
    ]
   },
-  "Gemini Flash — Responde": {
+  "Lyra Central — Responde": {
+   "main": [
+    [
+     {
+      "node": "Parseia Eventos SSE",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Parseia Eventos SSE": {
    "main": [
     [
      {
