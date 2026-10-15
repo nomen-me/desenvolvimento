@@ -67,13 +67,27 @@
       }
     },
     {
+      "id": "8e8bc3ac-f435-4e6b-bf76-a7b64bd4dbb0",
+      "name": "Calcula período",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -220
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Janela de dados pro indicador 'frete' (série dos últimos 7 dias, usada no\n// gráfico de barras do Painel) e pro indicador 'freteVolume' (total do mês\n// corrente, conforme o texto original do pendente: 'fretes emitidos por\n// semana' e 'fretes emitidos no mês'). Uma única consulta ao Ritmo cobre os\n// dois: busca desde a MENOR das duas datas (início do mês ou 7 dias atrás),\n// e o nó 'Monta resposta' separa os dois agregados a partir da mesma lista.\nconst agora = new Date();\nconst inicioMes = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1)).toISOString().slice(0, 10);\nconst seteDiasAtras = new Date(agora.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);\nconst desde = seteDiasAtras < inicioMes ? seteDiasAtras : inicioMes;\nreturn [{ json: { ok: true, inicioMes, seteDiasAtras, desde, mesVigente: inicioMes.slice(0, 7) } }];\n"
+      }
+    },
+    {
       "id": "5f2017de-9643-51ed-a3ef-a6488bd2daaf",
       "name": "Ritmo — Credenciais de envio",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        780,
-        0
+        1040,
+        -220
       ],
       "parameters": {
         "method": "GET",
@@ -114,31 +128,148 @@
       "waitBetweenTries": 1000
     },
     {
-      "id": "6edbe838-29ad-58d8-8a5a-3a6b26318636",
+      "id": "61a96384-f353-4652-9229-dae9eb86506e",
+      "name": "Ritmo — Fretes do período",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -220
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERPNEXT_DOMAIN.replace(/\\/+$/, '') }}/api/resource/Sales%20Invoice",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "=[\"name\",\"creation\",\"custom_tracking_code\"]"
+            },
+            {
+              "name": "filters",
+              "value": "=[[\"custom_tracking_code\",\"!=\",\"\"],[\"creation\",\">=\",\"{{ $node['Calcula período'].json.desde }}\"]]"
+            },
+            {
+              "name": "limit_page_length",
+              "value": "1000"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notes": "custom_tracking_code é escrito pelo W2_logistica.json após o despacho via Melhor Envio (Sales Invoice), mas NÃO está, até esta correção, entre os Custom Fields provisionados pelos instaladores (nem provisionar_cliente_synapse2.sh nem instalar_nomen_completo.sh o criam). O nó 'Monta resposta' trata um erro de coluna inexistente como FONTE_NAO_CONFIGURADA em vez de falha de comunicação — ver pendência registrada na entrega."
+    },
+    {
+      "id": "3faae417-0dc3-4b7c-88b9-2c93c57ce083",
+      "name": "Lyra configurada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        -220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d7b6f7e0-7a7f-4a3a-9a7e-7b3f2b7f9b10",
+              "leftValue": "={{ $json.lyraConfigurada }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c2a9e10-5b1a-4c9e-8b3a-6f0a1d2c3e44",
+      "name": "Lyra configurada? (checagem)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -420
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// O indicador 'ia' depende da Lyra Central, não do Ritmo — por isso a\n// checagem é isolada aqui, em vez de bloquear o endpoint inteiro em\n// 'Valida configuração'. Se a Lyra não estiver configurada neste Harmonia,\n// os outros indicadores (frete/freteVolume/freteSaldo) seguem normalmente;\n// só 'ia' fica como pendência.\nconst falta = ['LYRA_CENTRAL_URL', 'LYRA_API_KEY', 'LYRA_TENANT_ID'].filter(k => !$env[k]);\nif (falta.length) return [{ json: { lyraConfigurada: false, motivo: 'Lyra Central não configurada neste Harmonia — variáveis ausentes: ' + falta.join(', ') + '.' } }];\nreturn [{ json: { lyraConfigurada: true } }];\n"
+      }
+    },
+    {
+      "id": "31891eba-9ed0-4532-9600-25f8351a6278",
+      "name": "Lyra — Consultar uso IA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        -500
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.LYRA_CENTRAL_URL.replace(/\\/+$/, '') }}/v1/usage/{{ $env.LYRA_TENANT_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.LYRA_API_KEY }}"
+            },
+            {
+              "name": "X-Tenant-ID",
+              "value": "={{ $env.LYRA_TENANT_ID }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "notes": "GET /v1/usage/:tenantId é um endpoint real e documentado da Lyra Central (docs/02_api.md do repo nomen-me/lyra), mas a implementação atual (src/routes/usage.js) é um stub explícito: devolve sempre status_cota='nao_implementado' e os campos numéricos como null, com um TODO no próprio código ('substituir pelos dados reais vindos do Postgres/Redis de billing'). O nó 'Monta resposta' detecta esse caso e reporta FONTE_NAO_IMPLEMENTADA em vez de tratar os null como zero ou inventar um valor."
+    },
+    {
+      "id": "6a17d15e-16e8-4ce6-9d7e-9f19863e55c9",
       "name": "Monta resposta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
-        0
+        2080,
+        -220
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const lista = ($input.first().json.data) || [];\nconst me = lista.find(r => r.provedor === 'melhorenvio' && r.status === 'conectado') || null;\nconst pendencias = [\n  { campo: 'ia', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: 'Não há, nos arquivos do projeto, fonte existente de requisições de IA por dia (Lyra Central não expõe endpoint de uso documentado).' },\n  { campo: 'frete', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: 'Não há fonte existente de fretes emitidos por semana.' },\n  { campo: 'freteVolume', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: 'Não há fonte existente de fretes emitidos no mês.' }\n];\nconst parcial = {};\nif (me && me.saldo) { parcial.freteSaldo = me.saldo; parcial.freteSaldo_fonte = 'Synapse Credencial Externa (melhorenvio).saldo — cache'; parcial.freteSaldo_cache_atualizado_em = me.cache_atualizado_em || null; }\nelse pendencias.push({ campo: 'freteSaldo', codigo: 'PENDENTE_FONTE_DE_DADOS', detalhe: me ? 'Cache de saldo do Melhor Envio vazio no Ritmo.' : 'Melhor Envio não está conectado no Ritmo.' });\nconst m = 'PENDENTE_FONTE_DE_DADOS: ' + pendencias.map(p => p.campo).join(', ');\nreturn [{ json: { status: 501, body: { sucesso: false, status: 'PENDENTE_FONTE_DE_DADOS', erro: m, message: m, pendencias, parcial } } }];\n"
-      }
-    },
-    {
-      "id": "f103b2e9-ce2a-5a59-8b65-2c4ab6290679",
-      "name": "Formata erro Ritmo",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1300,
-        300
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const it = $input.first().json || {};\nconst e = it.error || it;\nconst raw = String(e.description || e.message || 'erro desconhecido');\nconst upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\nconst clean = raw.replace(/https?:\\/\\/\\S+/g, '[url]').replace(/(token|api_access_token|authorization)\\S*/gi, '[omitido]').slice(0, 300);\nconst status = upstream === 404 ? 404 : 502;\nconst m = \"Falha ao consultar credenciais no Ritmo\" + (upstream ? ' (HTTP ' + upstream + ')' : '') + (true ? ': ' + clean : '');\nreturn [{ json: { status, body: { sucesso: false, erro: m, message: m, origem: \"ritmo\" } } }];\n"
+        "jsCode": "// ---------------------------------------------------------------------\n// Synapse — Consumo — Serviços: monta a resposta final combinando os três\n// indicadores (ia, frete/freteVolume, freteSaldo), cada um resolvido de\n// forma independente nos nós anteriores. Regra central desta correção:\n// NUNCA retornar 501 incondicional e NUNCA declarar um indicador como\n// disponível sem um valor efetivamente obtido de uma fonte real.\n// ---------------------------------------------------------------------\nconst periodo = $node['Calcula período'].json;\nconst mesVigente = periodo.mesVigente;\n\nconst pendencias = [];\nconst fontes = {};\n\nfunction classificarErroRitmo(res) {\n  const e = (res && res.error) || res || {};\n  const upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\n  if (upstream === 401 || upstream === 403) {\n    return { codigo: 'FALHA_AUTENTICACAO', detalhe: 'Falha de autenticação/permissão ao consultar o Ritmo (HTTP ' + upstream + ').' };\n  }\n  return { codigo: 'FALHA_COMUNICACAO', detalhe: 'Falha de comunicação com o Ritmo' + (upstream ? ' (HTTP ' + upstream + ')' : '') + '.' };\n}\n\nfunction classificarErroLyra(res) {\n  const e = (res && res.error) || res || {};\n  const upstream = Number(e.httpCode || e.statusCode || e.status || (e.cause && e.cause.status) || 0);\n  if (upstream === 401 || upstream === 403) {\n    return { codigo: 'FALHA_AUTENTICACAO', detalhe: 'Falha de autenticação na Lyra Central (HTTP ' + upstream + ').' };\n  }\n  if (upstream === 429) {\n    return { codigo: 'FALHA_COMUNICACAO', detalhe: 'Lyra Central recusou a consulta por limite de requisições (HTTP 429).' };\n  }\n  return { codigo: 'FALHA_COMUNICACAO', detalhe: 'Falha de comunicação com a Lyra Central' + (upstream ? ' (HTTP ' + upstream + ')' : '') + '.' };\n}\n\n// ---- freteSaldo (Synapse Credencial Externa — melhorenvio, cache real) ----\nlet freteSaldo = 'indisponível';\nconst credRes = $node['Ritmo — Credenciais de envio'].json;\nif (credRes && credRes.error) {\n  const c = classificarErroRitmo(credRes);\n  pendencias.push({ campo: 'freteSaldo', codigo: c.codigo, detalhe: c.detalhe });\n} else {\n  const lista = (credRes && credRes.data) || [];\n  const me = lista.find(r => r.provedor === 'melhorenvio' && r.status === 'conectado') || null;\n  if (me && me.saldo) {\n    freteSaldo = me.saldo;\n    fontes.freteSaldo = 'Synapse Credencial Externa (melhorenvio).saldo — cache atualizado em ' + (me.cache_atualizado_em || 'data desconhecida') + '.';\n  } else {\n    pendencias.push({\n      campo: 'freteSaldo',\n      codigo: 'PENDENTE_FONTE_DE_DADOS',\n      detalhe: me ? 'Melhor Envio está conectado, mas o cache de saldo no Ritmo está vazio.' : 'Melhor Envio não está conectado no Ritmo.'\n    });\n  }\n}\n\n// ---- frete (série dos últimos 7 dias) e freteVolume (total do mês) ----\n// Fonte: Sales Invoice.custom_tracking_code, gravado pelo W2_logistica.json\n// no despacho via Melhor Envio. Ver nota de dependência no nó anterior:\n// este campo não está confirmado como provisionado pelos instaladores.\nlet frete = [];\nlet freteVolume = 'indisponível';\nconst fretesRes = $node['Ritmo — Fretes do período'].json;\nif (fretesRes && fretesRes.error) {\n  const e = fretesRes.error || {};\n  const raw = String(e.description || e.message || '');\n  const pareceCampoInexistente = /custom_tracking_code/i.test(raw) || /unknown column/i.test(raw) || /not a valid (field|fieldname)/i.test(raw);\n  if (pareceCampoInexistente) {\n    const d = 'O campo custom_tracking_code não está provisionado em Sales Invoice neste Ritmo (dependência: Custom Field ainda não criado pelo instalador). Fretes e volume de fretes não podem ser apurados até essa dependência ser resolvida.';\n    pendencias.push({ campo: 'frete', codigo: 'FONTE_NAO_CONFIGURADA', detalhe: d });\n    pendencias.push({ campo: 'freteVolume', codigo: 'FONTE_NAO_CONFIGURADA', detalhe: d });\n  } else {\n    const c = classificarErroRitmo(fretesRes);\n    pendencias.push({ campo: 'frete', codigo: c.codigo, detalhe: c.detalhe });\n    pendencias.push({ campo: 'freteVolume', codigo: c.codigo, detalhe: c.detalhe });\n  }\n} else {\n  const lista = (fretesRes && fretesRes.data) || [];\n  // Defesa extra (comportamento não confirmado contra uma instância real,\n  // ver ressalva nos testes): se o Ritmo devolvesse 200 mesmo com a coluna\n  // ausente, os itens não trariam a chave custom_tracking_code.\n  const campoAusente = lista.length > 0 && lista.every(r => !Object.prototype.hasOwnProperty.call(r, 'custom_tracking_code'));\n  if (campoAusente) {\n    const d = 'A consulta ao Ritmo foi concluída, mas os registros devolvidos não trazem o campo custom_tracking_code — sinal de que ele não está provisionado em Sales Invoice. Fretes e volume de fretes não podem ser apurados até essa dependência ser resolvida.';\n    pendencias.push({ campo: 'frete', codigo: 'FONTE_NAO_CONFIGURADA', detalhe: d });\n    pendencias.push({ campo: 'freteVolume', codigo: 'FONTE_NAO_CONFIGURADA', detalhe: d });\n  } else {\n    freteVolume = lista.filter(r => (r.creation || '').slice(0, 10) >= periodo.inicioMes).length;\n    const porDia = {};\n    for (const r of lista) {\n      const dia = (r.creation || '').slice(0, 10);\n      if (dia >= periodo.seteDiasAtras) porDia[dia] = (porDia[dia] || 0) + 1;\n    }\n    frete = Object.keys(porDia).sort().map(dia => ({ d: dia.slice(8, 10) + '/' + dia.slice(5, 7), v: porDia[dia] }));\n    fontes.frete = 'Sales Invoice.custom_tracking_code (Ritmo) — últimos 7 dias, por data de criação (campo zerado = consulta concluída sem fretes no dia, não ausência de dado).';\n    fontes.freteVolume = 'Sales Invoice.custom_tracking_code (Ritmo) — total desde ' + periodo.inicioMes + ' (mês vigente).';\n  }\n}\n\n// ---- ia (Lyra Central — GET /v1/usage/:tenantId) ----\nlet ia = [];\nconst lyraCfg = $node['Lyra configurada? (checagem)'].json;\nif (!lyraCfg.lyraConfigurada) {\n  pendencias.push({ campo: 'ia', codigo: 'FONTE_NAO_CONFIGURADA', detalhe: lyraCfg.motivo });\n} else {\n  let lyraRes = null;\n  try { lyraRes = $node['Lyra — Consultar uso IA'].json; } catch (e) { lyraRes = null; }\n  if (!lyraRes) {\n    pendencias.push({ campo: 'ia', codigo: 'FALHA_COMUNICACAO', detalhe: 'Não foi possível obter resposta da Lyra Central.' });\n  } else if (lyraRes.error) {\n    const c = classificarErroLyra(lyraRes);\n    pendencias.push({ campo: 'ia', codigo: c.codigo, detalhe: c.detalhe });\n  } else if (lyraRes.status_cota === 'nao_implementado' || lyraRes.atendimentos_usados === null || lyraRes.atendimentos_usados === undefined) {\n    pendencias.push({\n      campo: 'ia',\n      codigo: 'FONTE_NAO_IMPLEMENTADA',\n      detalhe: 'A Lyra Central respondeu, mas o indicador de consumo de IA ainda não está implementado do lado dela (status_cota=' + (lyraRes.status_cota || 'desconhecido') + ').'\n    });\n  } else {\n    ia = [{ d: lyraRes.mes_vigente || mesVigente, v: Number(lyraRes.atendimentos_usados) }];\n    fontes.ia = 'Lyra Central GET /v1/usage/{tenant_id} — atendimentos_usados do mês vigente (granularidade mensal, não diária: um único ponto por mês).';\n  }\n}\n\n// ---- Decide status/HTTP final ----\nconst completo = pendencias.length === 0;\nconst nadaObtido = ia.length === 0 && frete.length === 0 && freteVolume === 'indisponível' && freteSaldo === 'indisponível';\nconst todasFalhasDeComunicacao = pendencias.length > 0 && pendencias.every(p => p.codigo === 'FALHA_COMUNICACAO' || p.codigo === 'FALHA_AUTENTICACAO');\nconst falhaTotal = nadaObtido && todasFalhasDeComunicacao;\n\nconst status = completo ? 'OK' : (falhaTotal ? 'FALHA_COMUNICACAO' : 'PARCIAL');\nconst httpStatus = falhaTotal ? 502 : 200;\nconst msg = completo\n  ? null\n  : (falhaTotal\n    ? 'Não foi possível consultar nenhuma fonte de consumo agora.'\n    : 'Consumo de serviços obtido parcialmente — indisponível(is): ' + pendencias.map(p => p.campo).join(', ') + '.');\n\nconst body = {\n  sucesso: completo,\n  status,\n  periodo: { mesVigente, seteDiasAtras: periodo.seteDiasAtras },\n  ia,\n  frete,\n  freteSaldo,\n  freteVolume\n};\nif (Object.keys(fontes).length) body.fontes = fontes;\nif (pendencias.length) body.pendencias = pendencias;\nif (msg) { body.erro = msg; body.message = msg; }\n\nreturn [{ json: { status: httpStatus, body } }];\n"
       }
     },
     {
@@ -147,7 +278,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1560,
+        2340,
         0
       ],
       "parameters": {
@@ -164,13 +295,13 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1820,
-        -300
+        780,
+        300
       ],
       "parameters": {
-        "content": "**Synapse — Consumo — Serviços**\nStatus: PENDENTE_FONTE_DE_DADOS\nia / frete / freteVolume: nenhuma fonte existente identificada nos arquivos → o workflow declara a pendência (HTTP 501) em vez de inventar contador.\nfreteSaldo: lido do cache real `saldo` do DocType Synapse Credencial Externa (provedor melhorenvio), devolvido em `parcial`.\nQuando a fonte existir, trocar o nó 'Monta resposta' para devolver {ia, frete, freteSaldo, freteVolume} com HTTP 200.",
-        "height": 300,
-        "width": 520
+        "content": "**Synapse — Consumo — Serviços (corrigido)**\nNunca mais retorna 501 incondicional. HTTP 200 quando ao menos um indicador foi obtido (status OK ou PARCIAL, com `pendencias[]` listando o que faltou e por quê); HTTP 500 só na falta de configuração do Ritmo (pré-existente); HTTP 502 só se TODOS os indicadores falharam por comunicação/autenticação.\n\n`ia`: GET /v1/usage/:tenantId da Lyra Central — real, mas hoje é um stub no backend da Lyra (status_cota=nao_implementado) → reportado como FONTE_NAO_IMPLEMENTADA, não como zero.\n`frete`/`freteVolume`: Sales Invoice.custom_tracking_code (gravado pelo W2_logistica.json) — dependência não confirmada como provisionada pelos instaladores → se o Ritmo rejeitar a coluna, reportado como FONTE_NAO_CONFIGURADA.\n`freteSaldo`: Synapse Credencial Externa (melhorenvio).saldo — cache real, já confiável antes desta correção.\n\nVer RELATORIO_CONSUMO_SERVICOS.md para fontes, dependências e evidências de teste.",
+        "height": 420,
+        "width": 560
       }
     }
   ],
@@ -201,7 +332,7 @@
       "main": [
         [
           {
-            "node": "Ritmo — Credenciais de envio",
+            "node": "Calcula período",
             "type": "main",
             "index": 0
           }
@@ -209,6 +340,17 @@
         [
           {
             "node": "Responde ao Painel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcula período": {
+      "main": [
+        [
+          {
+            "node": "Ritmo — Credenciais de envio",
             "type": "main",
             "index": 0
           }
@@ -219,6 +361,71 @@
       "main": [
         [
           {
+            "node": "Ritmo — Fretes do período",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ritmo — Fretes do período",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ritmo — Fretes do período": {
+      "main": [
+        [
+          {
+            "node": "Lyra configurada? (checagem)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lyra configurada? (checagem)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lyra configurada? (checagem)": {
+      "main": [
+        [
+          {
+            "node": "Lyra configurada?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lyra configurada?": {
+      "main": [
+        [
+          {
+            "node": "Lyra — Consultar uso IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Monta resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lyra — Consultar uso IA": {
+      "main": [
+        [
+          {
             "node": "Monta resposta",
             "type": "main",
             "index": 0
@@ -226,7 +433,7 @@
         ],
         [
           {
-            "node": "Formata erro Ritmo",
+            "node": "Monta resposta",
             "type": "main",
             "index": 0
           }
@@ -234,17 +441,6 @@
       ]
     },
     "Monta resposta": {
-      "main": [
-        [
-          {
-            "node": "Responde ao Painel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Formata erro Ritmo": {
       "main": [
         [
           {

@@ -1,0 +1,202 @@
+[
+  {
+    "cenario": "1. Todas as fontes disponíveis com dados reais",
+    "ok": true,
+    "resultado": {
+      "status": 200,
+      "body": {
+        "sucesso": true,
+        "status": "OK",
+        "periodo": {
+          "mesVigente": "2026-10",
+          "seteDiasAtras": "2026-10-14"
+        },
+        "ia": [
+          {
+            "d": "2026-10",
+            "v": 380
+          }
+        ],
+        "frete": [
+          {
+            "d": "14/10",
+            "v": 1
+          },
+          {
+            "d": "15/10",
+            "v": 2
+          }
+        ],
+        "freteSaldo": "123.45",
+        "freteVolume": 3,
+        "fontes": {
+          "freteSaldo": "Synapse Credencial Externa (melhorenvio).saldo — cache atualizado em 2026-10-15 08:00:00.",
+          "frete": "Sales Invoice.custom_tracking_code (Ritmo) — últimos 7 dias, por data de criação (campo zerado = consulta concluída sem fretes no dia, não ausência de dado).",
+          "freteVolume": "Sales Invoice.custom_tracking_code (Ritmo) — total desde 2026-10-01 (mês vigente).",
+          "ia": "Lyra Central GET /v1/usage/{tenant_id} — atendimentos_usados do mês vigente (granularidade mensal, não diária: um único ponto por mês)."
+        }
+      }
+    }
+  },
+  {
+    "cenario": "2. Consulta concluída, zero fretes no período (zero real)",
+    "ok": true,
+    "resultado": {
+      "status": 200,
+      "body": {
+        "sucesso": false,
+        "status": "PARCIAL",
+        "periodo": {
+          "mesVigente": "2026-10",
+          "seteDiasAtras": "2026-10-08"
+        },
+        "ia": [],
+        "frete": [],
+        "freteSaldo": "0.00",
+        "freteVolume": 0,
+        "fontes": {
+          "freteSaldo": "Synapse Credencial Externa (melhorenvio).saldo — cache atualizado em 2026-10-15 08:00:00.",
+          "frete": "Sales Invoice.custom_tracking_code (Ritmo) — últimos 7 dias, por data de criação (campo zerado = consulta concluída sem fretes no dia, não ausência de dado).",
+          "freteVolume": "Sales Invoice.custom_tracking_code (Ritmo) — total desde 2026-10-01 (mês vigente)."
+        },
+        "pendencias": [
+          {
+            "campo": "ia",
+            "codigo": "FONTE_NAO_CONFIGURADA",
+            "detalhe": "Lyra Central não configurada neste Harmonia — variáveis ausentes: LYRA_CENTRAL_URL."
+          }
+        ],
+        "erro": "Consumo de serviços obtido parcialmente — indisponível(is): ia.",
+        "message": "Consumo de serviços obtido parcialmente — indisponível(is): ia."
+      }
+    }
+  },
+  {
+    "cenario": "3. freteSaldo disponível; ia sem fonte confirmada (stub da Lyra)",
+    "ok": true,
+    "resultado": {
+      "status": 200,
+      "body": {
+        "sucesso": false,
+        "status": "PARCIAL",
+        "periodo": {
+          "mesVigente": "2026-10",
+          "seteDiasAtras": "2026-10-08"
+        },
+        "ia": [],
+        "frete": [],
+        "freteSaldo": "50.00",
+        "freteVolume": "indisponível",
+        "fontes": {
+          "freteSaldo": "Synapse Credencial Externa (melhorenvio).saldo — cache atualizado em 2026-10-15 08:00:00."
+        },
+        "pendencias": [
+          {
+            "campo": "frete",
+            "codigo": "FONTE_NAO_CONFIGURADA",
+            "detalhe": "O campo custom_tracking_code não está provisionado em Sales Invoice neste Ritmo (dependência: Custom Field ainda não criado pelo instalador). Fretes e volume de fretes não podem ser apurados até essa dependência ser resolvida."
+          },
+          {
+            "campo": "freteVolume",
+            "codigo": "FONTE_NAO_CONFIGURADA",
+            "detalhe": "O campo custom_tracking_code não está provisionado em Sales Invoice neste Ritmo (dependência: Custom Field ainda não criado pelo instalador). Fretes e volume de fretes não podem ser apurados até essa dependência ser resolvida."
+          },
+          {
+            "campo": "ia",
+            "codigo": "FONTE_NAO_IMPLEMENTADA",
+            "detalhe": "A Lyra Central respondeu, mas o indicador de consumo de IA ainda não está implementado do lado dela (status_cota=nao_implementado)."
+          }
+        ],
+        "erro": "Consumo de serviços obtido parcialmente — indisponível(is): frete, freteVolume, ia.",
+        "message": "Consumo de serviços obtido parcialmente — indisponível(is): frete, freteVolume, ia."
+      }
+    }
+  },
+  {
+    "cenario": "4. Falha de autenticação (401) no Ritmo e na Lyra",
+    "ok": true,
+    "resultado": {
+      "status": 502,
+      "body": {
+        "sucesso": false,
+        "status": "FALHA_COMUNICACAO",
+        "periodo": {
+          "mesVigente": "2026-10",
+          "seteDiasAtras": "2026-10-08"
+        },
+        "ia": [],
+        "frete": [],
+        "freteSaldo": "indisponível",
+        "freteVolume": "indisponível",
+        "pendencias": [
+          {
+            "campo": "freteSaldo",
+            "codigo": "FALHA_AUTENTICACAO",
+            "detalhe": "Falha de autenticação/permissão ao consultar o Ritmo (HTTP 401)."
+          },
+          {
+            "campo": "frete",
+            "codigo": "FALHA_AUTENTICACAO",
+            "detalhe": "Falha de autenticação/permissão ao consultar o Ritmo (HTTP 401)."
+          },
+          {
+            "campo": "freteVolume",
+            "codigo": "FALHA_AUTENTICACAO",
+            "detalhe": "Falha de autenticação/permissão ao consultar o Ritmo (HTTP 401)."
+          },
+          {
+            "campo": "ia",
+            "codigo": "FALHA_AUTENTICACAO",
+            "detalhe": "Falha de autenticação na Lyra Central (HTTP 401)."
+          }
+        ],
+        "erro": "Não foi possível consultar nenhuma fonte de consumo agora.",
+        "message": "Não foi possível consultar nenhuma fonte de consumo agora."
+      }
+    }
+  },
+  {
+    "cenario": "5. Indisponibilidade da fonte (timeout / 503) — parcial, não total",
+    "ok": true,
+    "resultado": {
+      "status": 200,
+      "body": {
+        "sucesso": false,
+        "status": "PARCIAL",
+        "periodo": {
+          "mesVigente": "2026-10",
+          "seteDiasAtras": "2026-10-08"
+        },
+        "ia": [],
+        "frete": [],
+        "freteSaldo": "indisponível",
+        "freteVolume": 0,
+        "fontes": {
+          "frete": "Sales Invoice.custom_tracking_code (Ritmo) — últimos 7 dias, por data de criação (campo zerado = consulta concluída sem fretes no dia, não ausência de dado).",
+          "freteVolume": "Sales Invoice.custom_tracking_code (Ritmo) — total desde 2026-10-01 (mês vigente)."
+        },
+        "pendencias": [
+          {
+            "campo": "freteSaldo",
+            "codigo": "FALHA_COMUNICACAO",
+            "detalhe": "Falha de comunicação com o Ritmo."
+          },
+          {
+            "campo": "ia",
+            "codigo": "FALHA_COMUNICACAO",
+            "detalhe": "Falha de comunicação com a Lyra Central (HTTP 503)."
+          }
+        ],
+        "erro": "Consumo de serviços obtido parcialmente — indisponível(is): freteSaldo, ia.",
+        "message": "Consumo de serviços obtido parcialmente — indisponível(is): freteSaldo, ia."
+      }
+    }
+  },
+  {
+    "cenario": "6. Nenhum cenário retorna 501",
+    "ok": true,
+    "resultado": {
+      "ok": true
+    }
+  }
+]
